@@ -1,0 +1,11 @@
+{
+  "id": "obsidian-scribe",
+  "name": "Scribe AI",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "RAG-powered AI assistant for your vault. Chat with context from your notes.",
+  "author": "Mitchell Larsen",
+  "authorUrl": "https://github.com/MitchellTLarsen",
+  "fundingUrl": "",
+  "isDesktopOnly": false
+}
