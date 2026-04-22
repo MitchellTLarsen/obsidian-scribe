@@ -120,10 +120,10 @@ const DEFAULT_SETTINGS: ScribeSettings = {
   groqApiKey: "",
   ollamaBaseUrl: "http://localhost:11434",
   defaultProvider: "openai",
-  openaiModel: "gpt-4o-mini",
+  openaiModel: "gpt-5.4-nano",
   anthropicModel: "claude-3-5-haiku-20241022",
   groqModel: "llama-3.3-70b-versatile",
-  geminiModel: "gemini-2.5-flash",
+  geminiModel: "gemini-2.5-flash-lite",
   embeddingProvider: "openai",
   embeddingModel: "text-embedding-3-small",
   includeFolders: [],
@@ -1832,16 +1832,23 @@ class ScribeChatView extends ItemView {
     const estimatedTokens = Math.ceil(totalChars / 4);
 
     const costs: Record<string, number> = {
+      "gpt-5.4-nano": 0.2,
+      "gpt-5.4-mini": 0.75,
+      "gpt-5.4": 2.5,
+      "gpt-5.4-pro": 30,
+      "gpt-5.2": 1.75,
+      "gpt-5-nano": 0.05,
+      "gpt-5-mini": 0.25,
+      "gpt-5": 1.25,
+      "gpt-4.1-nano": 0.1,
+      "gpt-4.1-mini": 0.4,
+      "gpt-4.1": 2,
       "gpt-4o": 2.5,
       "gpt-4o-mini": 0.15,
-      "gpt-4-turbo": 10,
-      "gpt-4": 30,
-      "gpt-3.5-turbo": 0.5,
-      "gemini-3.1-pro": 0,
-      "gemini-3-flash": 0,
+      "gemini-2.5-flash-lite": 0,
       "gemini-2.5-flash": 0,
-      "gemini-2.5-pro": 0,
-      "gemini-2-flash": 0,
+      "gemini-2.0-flash": 0.1,
+      "gemini-1.5-pro": 1.25,
       "claude-sonnet-4-20250514": 3,
       "claude-3-5-sonnet-20241022": 3,
       "claude-3-5-haiku-20241022": 0.25,
@@ -2519,14 +2526,22 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for OpenAI provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gpt-4o", "GPT-4o (recommended)")
-          .addOption("gpt-4o-mini", "GPT-4o Mini (fast)")
-          .addOption("gpt-4-turbo", "GPT-4 Turbo")
-          .addOption("gpt-4", "GPT-4")
-          .addOption("gpt-3.5-turbo", "GPT-3.5 Turbo (cheapest)")
-          .addOption("o1", "o1 (reasoning)")
-          .addOption("o1-mini", "o1-mini (reasoning)")
+          .addOption("gpt-5.4-nano", "GPT-5.4 Nano ($0.20/1M)")
+          .addOption("gpt-5.4-mini", "GPT-5.4 Mini ($0.75/1M)")
+          .addOption("gpt-5.4", "GPT-5.4 ($2.50/1M)")
+          .addOption("gpt-5.4-pro", "GPT-5.4 Pro ($30/1M)")
+          .addOption("gpt-5.2", "GPT-5.2 ($1.75/1M)")
+          .addOption("gpt-5-nano", "GPT-5 Nano ($0.05/1M)")
+          .addOption("gpt-5-mini", "GPT-5 Mini ($0.25/1M)")
+          .addOption("gpt-5", "GPT-5 ($1.25/1M)")
+          .addOption("gpt-4.1-nano", "GPT-4.1 Nano ($0.10/1M)")
+          .addOption("gpt-4.1-mini", "GPT-4.1 Mini ($0.40/1M)")
+          .addOption("gpt-4.1", "GPT-4.1 ($2.00/1M)")
+          .addOption("gpt-4o-mini", "GPT-4o Mini ($0.15/1M)")
+          .addOption("gpt-4o", "GPT-4o ($2.50/1M)")
+          .addOption("o4-mini", "o4-mini (reasoning)")
           .addOption("o3-mini", "o3-mini (reasoning)")
+          .addOption("o1-mini", "o1-mini (reasoning)")
           .setValue(this.plugin.settings.openaiModel)
           .onChange((value) => {
             this.plugin.settings.openaiModel = value;
