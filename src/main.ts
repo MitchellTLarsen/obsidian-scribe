@@ -1600,24 +1600,33 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     }
 
     const fullPrompt = `${SYSTEM_PROMPT}\n\n${context}\n\n${historyText}User: ${message}\n\nAssistant:`;
+    const url = API_URLS.gemini(model, this.settings.geminiApiKey);
+    const body = JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] });
+
+    console.log(`[Gemini] Model: ${model}, Prompt size: ${fullPrompt.length} chars, Body size: ${body.length} bytes`);
+    console.log(`[Gemini] URL: ${url.replace(this.settings.geminiApiKey, "API_KEY_HIDDEN")}`);
 
     try {
       const response = await requestUrl({
-        url: API_URLS.gemini(model, this.settings.geminiApiKey),
+        url,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
+        body,
       });
 
+      console.log("[Gemini] Response received:", response.status);
+
       if (!response.json.candidates?.[0]?.content?.parts?.[0]?.text) {
+        console.log("[Gemini] Invalid response:", JSON.stringify(response.json).slice(0, 500));
         throw new Error(`Invalid response from Gemini. Model "${model}" may not be available.`);
       }
 
       return response.json.candidates[0].content.parts[0].text;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Gemini] Error:", errMsg);
       if (errMsg.includes("ERR_CONNECTION") || errMsg.includes("net::")) {
-        throw new Error(`Connection error with Gemini. Model "${model}" may not exist. Try gemini-2.5-flash.`);
+        throw new Error(`Connection error with Gemini (${model}). Check console for details. Try gemini-2.5-flash.`);
       }
       throw new Error(`Gemini error: ${errMsg}`);
     }
