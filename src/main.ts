@@ -212,6 +212,7 @@ export default class ScribePlugin extends Plugin {
   private pendingIndexQueue: Set<string> = new Set();
   private indexDebounceTimer: number | null = null;
   private saveDebounceTimer: number | null = null;
+  private startupComplete = false; // Ignore file events during startup
 
   async onload() {
     await this.loadSettings();
@@ -340,14 +341,6 @@ export default class ScribePlugin extends Plugin {
 
     // Chat Commands
     this.addCommand({
-      id: "chat-with-note",
-      name: "Chat about current note",
-      editorCallback: (editor: Editor, ctx) => {
-        if (ctx instanceof MarkdownView) this.chatWithNote(ctx);
-      },
-    });
-
-    this.addCommand({
       id: "save-chat-history",
       name: "Save current chat as note",
       callback: () => this.saveChatHistory(),
@@ -370,9 +363,10 @@ export default class ScribePlugin extends Plugin {
       })
     );
 
-    // Auto-index on file changes
+    // Auto-index on file changes (after startup completes)
     this.registerEvent(
       this.app.vault.on("create", (file) => {
+        if (!this.startupComplete) return;
         if (file instanceof TFile && file.extension === "md") {
           this.queueFileForIndexing(file.path);
         }
@@ -381,6 +375,7 @@ export default class ScribePlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
+        if (!this.startupComplete) return;
         if (file instanceof TFile && file.extension === "md") {
           this.queueFileForIndexing(file.path);
         }
@@ -389,6 +384,7 @@ export default class ScribePlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
+        if (!this.startupComplete) return;
         if (file instanceof TFile && file.extension === "md") {
           this.removeFileFromIndex(file.path);
         }
@@ -397,12 +393,19 @@ export default class ScribePlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
+        if (!this.startupComplete) return;
         if (file instanceof TFile && file.extension === "md") {
           this.removeFileFromIndex(oldPath);
           this.queueFileForIndexing(file.path);
         }
       })
     );
+
+    // Mark startup complete after a delay to ignore initial file events
+    window.setTimeout(() => {
+      this.startupComplete = true;
+      // Auto-indexing now enabled
+    }, 10000); // 10 second delay after plugin load
   }
 
   async activateView() {
@@ -874,25 +877,6 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   // CHAT COMMANDS
   // ============================================================================
 
-  async chatWithNote(view: MarkdownView) {
-    if (!view.file) {
-      new Notice("No active file");
-      return;
-    }
-
-    const content = view.editor.getValue();
-
-    // Open chat view and send the note as context
-    await this.activateView();
-
-    // Get the chat view and set up with current note
-    const leaves = this.app.workspace.getLeavesOfType(SCRIBE_VIEW_TYPE);
-    if (leaves.length > 0) {
-      const chatView = leaves[0].view as ScribeChatView;
-      chatView.setNoteContext(view.file.path, content);
-    }
-  }
-
   async saveChatHistory() {
     const leaves = this.app.workspace.getLeavesOfType(SCRIBE_VIEW_TYPE);
     if (leaves.length === 0) {
@@ -978,14 +962,6 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         })
     );
 
-    menu.addItem((item) =>
-      item
-        .setTitle("Scribe: Chat About Note")
-        .setIcon("message-square")
-        .onClick(() => {
-          if (view instanceof MarkdownView) this.chatWithNote(view);
-        })
-    );
   }
 
   async loadSettings() {
@@ -1021,10 +997,10 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       if (await adapter.exists(this.embeddingsCachePath)) {
         const data = await adapter.read(this.embeddingsCachePath);
         this.embeddings = JSON.parse(data);
-        console.log(`Loaded ${this.embeddings.length} embeddings from cache`);
+        // Embeddings loaded from cache
       }
     } catch {
-      console.log("No embedding cache found, will index on first use");
+      // No cache found, will index on first use
     }
   }
 
@@ -1032,7 +1008,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     try {
       await this.app.vault.adapter.write(this.embeddingsCachePath, JSON.stringify(this.embeddings));
     } catch (e) {
-      console.error("Failed to save embeddings cache:", e);
+      // Failed to save cache - will retry on next save
     }
   }
 
@@ -1165,11 +1141,11 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       }
 
       notice?.hide();
-      console.log(`Indexed ${filePath}: ${chunks.length} chunks`);
+      // File indexed successfully
       return true;
     } catch (e) {
       notice?.hide();
-      console.error(`Failed to index ${filePath}:`, e);
+      // Failed to index file
       return false;
     }
   }
@@ -1181,7 +1157,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     if (removed > 0) {
       new Notice(`Removed: ${getFileName(filePath)}`, 1500);
-      console.log(`Removed ${removed} embeddings for ${filePath}`);
+      // Embeddings removed for deleted file
       this.debouncedSaveEmbeddings();
       this.updateConnectionsView();
     }
@@ -1253,7 +1229,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
           }
         }
       } catch (e) {
-        console.error(`Failed to index ${file.path}:`, e);
+        // Failed to index file, continuing
       }
     }
 
@@ -1325,13 +1301,13 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       });
 
       if (response.status >= 400) {
-        console.error(`Embedding API error: Status ${response.status}`);
+        // Embedding API error, retrying
         await delay(2000);
         return null;
       }
 
       if (response.text?.trim().startsWith("<")) {
-        console.error("Embedding API returned HTML - possible network/proxy issue");
+        // Embedding API returned HTML - network issue
         await delay(2000);
         return null;
       }
@@ -1341,7 +1317,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       const data = response.json;
       return data?.data?.[0]?.embedding ?? null;
     } catch (e) {
-      console.error("Embedding request failed:", e);
+      // Embedding request failed
       await delay(2000);
       return null;
     }
@@ -2019,31 +1995,6 @@ class ScribeChatView extends ItemView {
     } catch (e: unknown) {
       new Notice(`Failed to save: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }
-
-  setNoteContext(path: string, content: string) {
-    // Set up chat with note context
-    this.pendingSources = [{
-      path,
-      content: content.slice(0, 5000),
-      score: 100,
-      header: "Current Note"
-    }];
-
-    // Show a message indicating we're chatting about this note
-    this.messagesEl.querySelector(".scribe-welcome")?.remove();
-
-    const contextMsg = this.messagesEl.createDiv({ cls: "scribe-context-notice" });
-    contextMsg.createEl("span", { text: `Chatting about: ${getFileName(path)}` });
-
-    const clearBtn = contextMsg.createEl("button", { text: "Clear", cls: "scribe-btn-small" });
-    clearBtn.addEventListener("click", () => {
-      this.pendingSources = [];
-      contextMsg.remove();
-    });
-
-    this.inputEl.focus();
-    this.inputEl.placeholder = `Ask about "${getFileName(path)}"...`;
   }
 
   async onClose() {
