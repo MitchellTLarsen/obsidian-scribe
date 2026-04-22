@@ -1,4 +1,9 @@
-/* Scribe AI - Obsidian Plugin Styles */
+/* Archivist AI - Obsidian Plugin Styles */
+
+/* Utility classes */
+.is-hidden {
+  display: none !important;
+}
 
 /* Container */
 .scribe-chat-container {
@@ -518,7 +523,7 @@
   background: var(--interactive-accent);
   border-radius: 4px;
   transition: width 0.2s ease;
-  width: 0%;
+  width: var(--progress-width, 0%);
 }
 
 .scribe-progress-text {
@@ -857,7 +862,7 @@
   left: 0;
   top: 0;
   height: 100%;
-  width: inherit;
+  width: var(--score-width, 0%);
   background: var(--interactive-accent);
   border-radius: 2px;
 }

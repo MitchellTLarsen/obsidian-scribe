@@ -13,7 +13,6 @@ import {
   MarkdownView,
   Menu,
   Modal,
-  TFolder,
 } from "obsidian";
 
 // ============================================================================
@@ -70,14 +69,6 @@ interface Flashcard {
   question: string;
   answer: string;
   source: string;
-}
-
-interface ChatSession {
-  id: string;
-  name: string;
-  messages: Message[];
-  sources: Source[];
-  timestamp: number;
 }
 
 interface SearchResult {
@@ -1711,15 +1702,14 @@ class ScribeChatView extends ItemView {
     this.messagesEl = container.createDiv({ cls: "scribe-messages" });
     if (this.messages.length === 0) this.showWelcome();
 
-    this.sourcePreviewEl = container.createDiv({ cls: "scribe-source-preview" });
-    this.sourcePreviewEl.style.display = "none";
+    this.sourcePreviewEl = container.createDiv({ cls: "scribe-source-preview is-hidden" });
 
     this.createInputArea(container);
   }
 
   private createHeader(container: HTMLElement) {
     const header = container.createDiv({ cls: "scribe-header" });
-    header.createEl("h4", { text: "Scribe AI" });
+    header.createEl("h4", { text: "Archivist AI" });
 
     const controls = header.createDiv({ cls: "scribe-controls" });
 
@@ -1781,7 +1771,7 @@ class ScribeChatView extends ItemView {
 
   showWelcome() {
     const welcome = this.messagesEl.createDiv({ cls: "scribe-welcome" });
-    welcome.createEl("h3", { text: "Welcome to Scribe AI" });
+    welcome.createEl("h3", { text: "Welcome to Archivist AI" });
     welcome.createEl("p", {
       text: "Ask questions about your vault. I'll search for relevant context and provide informed answers.",
     });
@@ -1789,7 +1779,7 @@ class ScribeChatView extends ItemView {
     if (this.plugin.embeddings.length === 0) {
       const notice = welcome.createDiv({ cls: "scribe-notice" });
       notice.createEl("p", { text: "Your vault hasn't been indexed yet." });
-      const indexBtn = notice.createEl("button", { text: "Index Now" });
+      const indexBtn = notice.createEl("button", { text: "Index now" });
       indexBtn.addEventListener("click", () => {
         this.plugin.indexVault();
         notice.remove();
@@ -1807,7 +1797,7 @@ class ScribeChatView extends ItemView {
     if (!message) return;
 
     this.pendingMessage = message;
-    this.sourcePreviewEl.style.display = "block";
+    this.sourcePreviewEl.removeClass("is-hidden");
     this.sourcePreviewEl.empty();
 
     const searchingEl = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-searching" });
@@ -1873,7 +1863,7 @@ class ScribeChatView extends ItemView {
   private createSourcePreviewActions() {
     const addSection = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-add-section" });
 
-    const getMoreBtn = addSection.createEl("button", { text: "Get More Sources", cls: "scribe-btn-small" });
+    const getMoreBtn = addSection.createEl("button", { text: "Get more sources", cls: "scribe-btn-small" });
     getMoreBtn.addEventListener("click", async () => {
       const moreSources = await this.plugin.search(this.pendingMessage, this.plugin.settings.contextSize * 2);
       for (const source of moreSources) {
@@ -1948,12 +1938,12 @@ class ScribeChatView extends ItemView {
     const cancelBtn = actions.createEl("button", { text: "Cancel", cls: "scribe-btn-small" });
     cancelBtn.addEventListener("click", () => {
       this.isPreviewMode = false;
-      this.sourcePreviewEl.style.display = "none";
+      this.sourcePreviewEl.addClass("is-hidden");
       this.pendingSources = [];
       this.pendingMessage = "";
     });
 
-    const confirmBtn = actions.createEl("button", { text: "Send with Sources", cls: "scribe-send-btn" });
+    const confirmBtn = actions.createEl("button", { text: "Send with sources", cls: "scribe-send-btn" });
     confirmBtn.addEventListener("click", () => this.confirmAndSend());
   }
 
@@ -1961,7 +1951,7 @@ class ScribeChatView extends ItemView {
     if (!this.pendingMessage) return;
 
     this.isPreviewMode = false;
-    this.sourcePreviewEl.style.display = "none";
+    this.sourcePreviewEl.addClass("is-hidden");
 
     const message = this.pendingMessage;
     this.sources = [...this.pendingSources];
@@ -2056,7 +2046,7 @@ class ScribeChatView extends ItemView {
       setTimeout(() => copyBtn.setText("Copy"), 2000);
     });
 
-    const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as TODO" });
+    const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as todo" });
     todoBtn.addEventListener("click", () => this.saveAsTodo(content));
   }
 
@@ -2082,45 +2072,44 @@ class ScribeChatView extends ItemView {
     });
 
     if (role === "assistant") {
-      const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as TODO" });
+      const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as todo" });
       todoBtn.addEventListener("click", () => this.saveAsTodo(content));
     }
 
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
   }
 
-  async saveAsTodo(content: string) {
-    const title = prompt("Enter a title for this TODO list:", "Review Tasks");
-    if (!title) return;
+  saveAsTodo(content: string) {
+    new TodoTitleModal(this.app, async (title: string) => {
+      const timestamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
+      const filename = `TODO_${timestamp}_${title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30)}.md`;
 
-    const timestamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
-    const filename = `TODO_${timestamp}_${title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30)}.md`;
+      let todoContent = `# ${title}\n\n> Generated by Archivist AI on ${new Date().toLocaleString()}\n\n---\n\n`;
 
-    let todoContent = `# ${title}\n\n> Generated by Scribe AI on ${new Date().toLocaleString()}\n\n---\n\n`;
-
-    for (const line of content.split("\n")) {
-      const stripped = line.trim();
-      if (stripped.startsWith("- ") && !stripped.startsWith("- [ ]")) {
-        todoContent += line.replace("- ", "- [ ] ") + "\n";
-      } else if (stripped.startsWith("* ") && !stripped.startsWith("* [ ]")) {
-        todoContent += line.replace("* ", "- [ ] ") + "\n";
-      } else if (/^\d+\.\s/.test(stripped)) {
-        todoContent += "- [ ] " + stripped.replace(/^\d+\.\s*/, "") + "\n";
-      } else {
-        todoContent += line + "\n";
+      for (const line of content.split("\n")) {
+        const stripped = line.trim();
+        if (stripped.startsWith("- ") && !stripped.startsWith("- [ ]")) {
+          todoContent += line.replace("- ", "- [ ] ") + "\n";
+        } else if (stripped.startsWith("* ") && !stripped.startsWith("* [ ]")) {
+          todoContent += line.replace("* ", "- [ ] ") + "\n";
+        } else if (/^\d+\.\s/.test(stripped)) {
+          todoContent += "- [ ] " + stripped.replace(/^\d+\.\s*/, "") + "\n";
+        } else {
+          todoContent += line + "\n";
+        }
       }
-    }
 
-    const todosFolder = this.app.vault.getAbstractFileByPath("TODOs");
-    const savePath = todosFolder ? `TODOs/${filename}` : filename;
+      const todosFolder = this.app.vault.getAbstractFileByPath("TODOs");
+      const savePath = todosFolder ? `TODOs/${filename}` : filename;
 
-    try {
-      const file = await this.app.vault.create(savePath, todoContent);
-      new Notice(`Saved to ${savePath}`);
-      this.app.workspace.getLeaf(false).openFile(file);
-    } catch (e: unknown) {
-      new Notice(`Failed to save: ${e instanceof Error ? e.message : String(e)}`);
-    }
+      try {
+        const file = await this.app.vault.create(savePath, todoContent);
+        new Notice(`Saved to ${savePath}`);
+        await this.app.workspace.getLeaf(false).openFile(file);
+      } catch {
+        new Notice("Failed to save TODO");
+      }
+    }).open();
   }
 
   async onClose() {
@@ -2226,7 +2215,7 @@ class ScribeConnectionsView extends ItemView {
     empty.createEl("p", { text: message });
 
     if (showIndexBtn) {
-      const indexBtn = empty.createEl("button", { text: "Index Now", cls: "scribe-btn-small" });
+      const indexBtn = empty.createEl("button", { text: "Index now", cls: "scribe-btn-small" });
       indexBtn.addEventListener("click", () => this.plugin.indexVault());
     }
   }
@@ -2243,7 +2232,7 @@ class ScribeConnectionsView extends ItemView {
       // Score indicator
       const scoreEl = item.createDiv({ cls: "scribe-connection-score" });
       const scoreBar = scoreEl.createDiv({ cls: "scribe-score-bar" });
-      scoreBar.style.width = `${conn.score}%`;
+      scoreBar.setCssProps({ "--score-width": `${conn.score}%` });
       scoreEl.createSpan({ text: `${conn.score}%`, cls: "scribe-score-text" });
 
       // File info
@@ -2311,7 +2300,7 @@ class ScribeSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Scribe AI Settings" });
+    new Setting(containerEl).setName("Archivist AI settings").setHeading();
 
     this.addApiKeySettings(containerEl);
     this.addProviderSettings(containerEl);
@@ -2321,7 +2310,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addApiKeySettings(containerEl: HTMLElement) {
-    containerEl.createEl("h3", { text: "API Keys" });
+    new Setting(containerEl).setName("API keys").setHeading();
 
     new Setting(containerEl)
       .setName("OpenAI API Key")
@@ -2365,7 +2354,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addProviderSettings(containerEl: HTMLElement) {
-    containerEl.createEl("h3", { text: "Provider Settings" });
+    new Setting(containerEl).setName("Provider settings").setHeading();
 
     new Setting(containerEl)
       .setName("Default Provider")
@@ -2446,7 +2435,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addIndexingSettings(containerEl: HTMLElement) {
-    containerEl.createEl("h3", { text: "Indexing Settings" });
+    new Setting(containerEl).setName("Indexing settings").setHeading();
 
     this.addTagInput(containerEl, "Include Folders", "Only index these folders (leave empty for all)", "Folder name...", "includeFolders");
     this.addTagInput(containerEl, "Excluded Files", "Don't index these files", "File name...", "excludedFiles");
@@ -2513,7 +2502,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addChatSettings(containerEl: HTMLElement) {
-    containerEl.createEl("h3", { text: "Chat Settings" });
+    new Setting(containerEl).setName("Chat settings").setHeading();
 
     new Setting(containerEl)
       .setName("Show Sources")
@@ -2527,31 +2516,31 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addActionSettings(containerEl: HTMLElement) {
-    containerEl.createEl("h3", { text: "Actions" });
+    new Setting(containerEl).setName("Actions").setHeading();
 
     new Setting(containerEl)
       .setName("Index Vault")
       .setDesc(`Currently indexed: ${this.plugin.embeddings.length} chunks`)
-      .addButton((btn) => btn.setButtonText("Re-index Now").onClick(() => this.plugin.indexVault()))
+      .addButton((btn) => btn.setButtonText("Re-index now").onClick(() => this.plugin.indexVault()))
       .addButton((btn) => btn.setButtonText("Cancel").setWarning().onClick(() => this.plugin.cancelIndexing()));
 
-    const progressContainer = containerEl.createDiv({ cls: "scribe-progress-container" });
+    const progressContainer = containerEl.createDiv({ cls: "scribe-progress-container is-hidden" });
     const progressBar = progressContainer.createDiv({ cls: "scribe-progress-bar" });
     const progressFill = progressBar.createDiv({ cls: "scribe-progress-fill" });
     const progressText = progressContainer.createDiv({ cls: "scribe-progress-text" });
 
     const updateProgress = () => {
       if (this.plugin.indexing) {
-        progressContainer.style.display = "block";
+        progressContainer.removeClass("is-hidden");
         const percent = this.plugin.indexingProgress.total > 0 ? (this.plugin.indexingProgress.current / this.plugin.indexingProgress.total) * 100 : 0;
-        progressFill.style.width = `${percent}%`;
+        progressFill.setCssProps({ "--progress-width": `${percent}%` });
         progressText.setText(this.plugin.indexingStatus);
       } else if (this.plugin.indexingStatus) {
-        progressContainer.style.display = "block";
-        progressFill.style.width = "100%";
+        progressContainer.removeClass("is-hidden");
+        progressFill.setCssProps({ "--progress-width": "100%" });
         progressText.setText(this.plugin.indexingStatus);
       } else {
-        progressContainer.style.display = "none";
+        progressContainer.addClass("is-hidden");
       }
     };
 
@@ -2598,7 +2587,7 @@ class ScribeSearchView extends ItemView {
 
     // Header
     const header = container.createDiv({ cls: "scribe-search-header" });
-    header.createEl("h4", { text: "Semantic Search" });
+    header.createEl("h4", { text: "Semantic search" });
 
     // Search input
     const searchRow = container.createDiv({ cls: "scribe-search-row" });
@@ -2742,7 +2731,7 @@ class BacklinkSuggestionsModal extends Modal {
     contentEl.empty();
     contentEl.addClass("scribe-modal");
 
-    contentEl.createEl("h2", { text: "Suggested Backlinks" });
+    contentEl.createEl("h2", { text: "Suggested backlinks" });
     contentEl.createEl("p", { text: `Notes that might be relevant to link from "${getFileName(this.activeFile.path)}"`, cls: "scribe-modal-desc" });
 
     const list = contentEl.createDiv({ cls: "scribe-suggestions-list" });
@@ -2754,7 +2743,7 @@ class BacklinkSuggestionsModal extends Modal {
       info.createEl("span", { text: getFileName(conn.path), cls: "scribe-suggestion-name" });
       info.createEl("span", { text: ` (${conn.score}% similar)`, cls: "scribe-suggestion-score" });
 
-      const addBtn = item.createEl("button", { text: "Add Link", cls: "scribe-btn-small" });
+      const addBtn = item.createEl("button", { text: "Add link", cls: "scribe-btn-small" });
       addBtn.addEventListener("click", async () => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (view) {
@@ -2797,7 +2786,7 @@ class DuplicatesModal extends Modal {
     contentEl.empty();
     contentEl.addClass("scribe-modal");
 
-    contentEl.createEl("h2", { text: "Similar/Duplicate Notes" });
+    contentEl.createEl("h2", { text: "Similar/duplicate notes" });
     contentEl.createEl("p", { text: `Found ${this.duplicates.length} pairs of very similar notes (>85% similarity)`, cls: "scribe-modal-desc" });
 
     const list = contentEl.createDiv({ cls: "scribe-duplicates-list" });
@@ -2846,7 +2835,7 @@ class OrphansModal extends Modal {
     contentEl.empty();
     contentEl.addClass("scribe-modal");
 
-    contentEl.createEl("h2", { text: "Orphan Notes" });
+    contentEl.createEl("h2", { text: "Orphan notes" });
     contentEl.createEl("p", { text: `Found ${this.orphans.length} notes with weak connections (<40% max similarity)`, cls: "scribe-modal-desc" });
 
     const list = contentEl.createDiv({ cls: "scribe-orphans-list" });
@@ -2885,7 +2874,7 @@ class GenerateNoteModal extends Modal {
     contentEl.empty();
     contentEl.addClass("scribe-modal");
 
-    contentEl.createEl("h2", { text: "Generate Note from Topic" });
+    contentEl.createEl("h2", { text: "Generate note from topic" });
 
     const form = contentEl.createDiv({ cls: "scribe-generate-form" });
 
@@ -2968,7 +2957,7 @@ class FlashcardsModal extends Modal {
     const actions = container.createDiv({ cls: "scribe-flashcard-actions" });
 
     if (!this.showingAnswer) {
-      const showBtn = actions.createEl("button", { text: "Show Answer", cls: "scribe-send-btn" });
+      const showBtn = actions.createEl("button", { text: "Show answer", cls: "scribe-send-btn" });
       showBtn.addEventListener("click", () => {
         this.showingAnswer = true;
         this.renderCard(contentEl);
@@ -2995,7 +2984,7 @@ class FlashcardsModal extends Modal {
       }
     }
 
-    const exportBtn = actions.createEl("button", { text: "Export All", cls: "scribe-btn-small" });
+    const exportBtn = actions.createEl("button", { text: "Export all", cls: "scribe-btn-small" });
     exportBtn.addEventListener("click", () => this.exportFlashcards());
   }
 
@@ -3030,7 +3019,7 @@ class OutlineModal extends Modal {
     contentEl.empty();
     contentEl.addClass("scribe-modal");
 
-    contentEl.createEl("h2", { text: "Generate Outline" });
+    contentEl.createEl("h2", { text: "Generate outline" });
 
     const form = contentEl.createDiv({ cls: "scribe-generate-form" });
 
@@ -3058,7 +3047,7 @@ class OutlineModal extends Modal {
         MarkdownRenderer.render(this.app, outline, resultEl, "", null as unknown as Plugin);
 
         // Add copy button
-        const copyBtn = resultEl.createEl("button", { text: "Copy Outline", cls: "scribe-btn-small" });
+        const copyBtn = resultEl.createEl("button", { text: "Copy outline", cls: "scribe-btn-small" });
         copyBtn.addEventListener("click", () => {
           navigator.clipboard.writeText(outline);
           copyBtn.setText("Copied!");
@@ -3075,6 +3064,53 @@ class OutlineModal extends Modal {
     cancelBtn.addEventListener("click", () => this.close());
 
     topicInput.focus();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class TodoTitleModal extends Modal {
+  onSubmit: (title: string) => void;
+
+  constructor(app: App, onSubmit: (title: string) => void) {
+    super(app);
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: "Save as todo" });
+
+    const form = contentEl.createDiv({ cls: "scribe-generate-form" });
+    form.createEl("label", { text: "Title:" });
+    const titleInput = form.createEl("input", {
+      type: "text",
+      placeholder: "Review tasks",
+      cls: "scribe-modal-input",
+    });
+    titleInput.value = "Review tasks";
+
+    const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
+
+    const saveBtn = actions.createEl("button", { text: "Save", cls: "scribe-send-btn" });
+    saveBtn.addEventListener("click", () => {
+      const title = titleInput.value.trim();
+      if (title) {
+        this.close();
+        this.onSubmit(title);
+      }
+    });
+
+    const cancelBtnModal = actions.createEl("button", { text: "Cancel", cls: "scribe-btn-small" });
+    cancelBtnModal.addEventListener("click", () => this.close());
+
+    titleInput.focus();
+    titleInput.select();
   }
 
   onClose() {
