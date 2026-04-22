@@ -1994,6 +1994,46 @@ class ScribeChatView extends ItemView {
       })();
     });
 
+    // Local file upload row
+    const uploadRow = addSection.createDiv({ cls: "scribe-preview-add-row" });
+    const fileUploadInput = uploadRow.createEl("input", {
+      type: "file",
+      attr: { accept: ".txt,.md,.json,.csv,.html,.xml,.js,.ts,.py,.java,.c,.cpp,.css" },
+      cls: "scribe-file-upload-input",
+    });
+    fileUploadInput.style.display = "none";
+
+    const uploadLabel = uploadRow.createEl("span", {
+      text: "Upload file from computer",
+      cls: "scribe-preview-add-input scribe-upload-label",
+    });
+    const uploadBtn = uploadRow.createEl("button", { text: "Browse", cls: "scribe-btn-small" });
+    uploadBtn.addEventListener("click", () => fileUploadInput.click());
+
+    fileUploadInput.addEventListener("change", () => {
+      const file = fileUploadInput.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        if (content) {
+          this.pendingSources.push({
+            path: `[Upload] ${file.name}`,
+            content: content.slice(0, 5000),
+            score: 100,
+            header: "Uploaded file",
+          });
+          uploadLabel.setText(`Uploaded: ${file.name}`);
+          this.renderSourcePreview();
+        }
+      };
+      reader.onerror = () => {
+        new Notice("Failed to read file: " + file.name);
+      };
+      reader.readAsText(file);
+    });
+
     const actions = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-actions" });
 
     const cancelBtn = actions.createEl("button", { text: "Cancel", cls: "scribe-btn-small" });

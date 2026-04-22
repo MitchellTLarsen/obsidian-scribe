@@ -723,6 +723,13 @@
   border-color: var(--interactive-accent);
 }
 
+.scribe-upload-label {
+  cursor: default;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
 .scribe-preview-actions {
   display: flex;
   gap: 8px;
