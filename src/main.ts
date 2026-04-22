@@ -1763,6 +1763,23 @@ class ScribeChatView extends ItemView {
 
     const controls = header.createDiv({ cls: "scribe-controls" });
 
+    const providerSelect = controls.createEl("select", { cls: "scribe-provider-select" });
+    const providers = [
+      { value: "openai", label: "OpenAI" },
+      { value: "gemini", label: "Gemini" },
+      { value: "anthropic", label: "Anthropic" },
+      { value: "groq", label: "Groq" },
+    ];
+    providers.forEach((p) => {
+      const opt = providerSelect.createEl("option", { value: p.value, text: p.label });
+      if (p.value === this.plugin.settings.defaultProvider) opt.selected = true;
+    });
+    providerSelect.addEventListener("change", () => {
+      this.plugin.settings.defaultProvider = providerSelect.value;
+      void this.plugin.saveSettings();
+      this.updateModelInfo();
+    });
+
     const fullVaultLabel = controls.createEl("label", { cls: "scribe-toggle" });
     const checkbox = fullVaultLabel.createEl("input", { type: "checkbox" });
     checkbox.checked = this.fullVaultMode;

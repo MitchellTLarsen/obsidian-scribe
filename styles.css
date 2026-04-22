@@ -69,6 +69,25 @@
   background: var(--background-modifier-error);
 }
 
+.scribe-provider-select {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.scribe-provider-select:hover {
+  border-color: var(--interactive-accent);
+}
+
+.scribe-provider-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
 /* Messages */
 .scribe-messages {
   flex: 1;
