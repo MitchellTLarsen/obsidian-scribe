@@ -2554,14 +2554,12 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for Google Gemini provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gemini-3.1-pro", "Gemini 3.1 Pro")
-          .addOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite")
-          .addOption("gemini-3-flash", "Gemini 3 Flash")
+          .addOption("gemini-3.1-pro-preview", "Gemini 3.1 Pro (preview)")
+          .addOption("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite (preview)")
+          .addOption("gemini-3-flash-preview", "Gemini 3 Flash (preview)")
           .addOption("gemini-2.5-pro", "Gemini 2.5 Pro")
-          .addOption("gemini-2.5-flash", "Gemini 2.5 Flash")
-          .addOption("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite")
-          .addOption("gemini-2-flash", "Gemini 2 Flash")
-          .addOption("gemini-2-flash-lite", "Gemini 2 Flash Lite")
+          .addOption("gemini-2.5-flash", "Gemini 2.5 Flash (recommended)")
+          .addOption("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite (free)")
           .setValue(this.plugin.settings.geminiModel)
           .onChange((value) => {
             this.plugin.settings.geminiModel = value;
