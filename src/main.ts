@@ -22,7 +22,10 @@ interface ScribeSettings {
   groqApiKey: string;
   ollamaBaseUrl: string;
   defaultProvider: string;
-  defaultModel: string;
+  openaiModel: string;
+  anthropicModel: string;
+  groqModel: string;
+  geminiModel: string;
   embeddingProvider: string;
   embeddingModel: string;
   includeFolders: string[];
@@ -62,7 +65,10 @@ const DEFAULT_SETTINGS: ScribeSettings = {
   groqApiKey: "",
   ollamaBaseUrl: "http://localhost:11434",
   defaultProvider: "openai",
-  defaultModel: "gpt-5.4-nano",
+  openaiModel: "gpt-5-nano",
+  anthropicModel: "claude-3-5-haiku-20241022",
+  groqModel: "llama-3.3-70b-versatile",
+  geminiModel: "gemini-2.0-flash",
   embeddingProvider: "openai",
   embeddingModel: "text-embedding-3-small",
   includeFolders: [],
@@ -490,6 +496,16 @@ export default class ScribePlugin extends Plugin {
   // AI CHAT
   // ============================================================================
 
+  getModelForProvider(provider: string): string {
+    switch (provider) {
+      case "openai": return this.settings.openaiModel;
+      case "anthropic": return this.settings.anthropicModel;
+      case "groq": return this.settings.groqModel;
+      case "gemini": return this.settings.geminiModel;
+      default: return "gpt-4o-mini";
+    }
+  }
+
   async chat(
     message: string,
     sources: Source[],
@@ -498,7 +514,7 @@ export default class ScribePlugin extends Plugin {
     model?: string
   ): Promise<string> {
     const useProvider = provider || this.settings.defaultProvider;
-    const useModel = model || this.settings.defaultModel;
+    const useModel = model || this.getModelForProvider(useProvider);
 
     // Build context from sources
     let context = "";
@@ -525,11 +541,11 @@ Be concise and helpful.`;
     if (useProvider === "openai" && this.settings.openaiApiKey) {
       return this.chatOpenAI(message, context, history, systemPrompt, useModel);
     } else if (useProvider === "gemini" && this.settings.geminiApiKey) {
-      return this.chatGemini(message, context, history, systemPrompt);
+      return this.chatGemini(message, context, history, systemPrompt, useModel);
     } else if (useProvider === "anthropic" && this.settings.anthropicApiKey) {
       return this.chatAnthropic(message, context, history, systemPrompt, useModel);
     } else if (useProvider === "groq" && this.settings.groqApiKey) {
-      return this.chatGroq(message, context, history, systemPrompt);
+      return this.chatGroq(message, context, history, systemPrompt, useModel);
     }
 
     throw new Error(`Provider ${useProvider} not configured. Please add API key in settings.`);
@@ -568,12 +584,14 @@ Be concise and helpful.`;
     message: string,
     context: string,
     history: Message[],
-    systemPrompt: string
+    systemPrompt: string,
+    model: string
   ): Promise<string> {
     const fullPrompt = `${systemPrompt}\n\n${context}\n\nUser: ${message}\n\nAssistant:`;
+    const useModel = model || "gemini-2.0-flash";
 
     const response = await requestUrl({
-      url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.settings.geminiApiKey}`,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${this.settings.geminiApiKey}`,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -624,7 +642,8 @@ Be concise and helpful.`;
     message: string,
     context: string,
     history: Message[],
-    systemPrompt: string
+    systemPrompt: string,
+    model: string
   ): Promise<string> {
     const messages: Message[] = [
       { role: "system", content: systemPrompt + "\n\n" + context },
@@ -640,7 +659,7 @@ Be concise and helpful.`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: model || "llama-3.3-70b-versatile",
         messages: messages,
       }),
     });
@@ -658,7 +677,7 @@ Be concise and helpful.`;
     model?: string
   ): Promise<void> {
     const useProvider = provider || this.settings.defaultProvider;
-    const useModel = model || this.settings.defaultModel;
+    const useModel = model || this.getModelForProvider(useProvider);
 
     // Build context from sources
     let context = "";
@@ -888,7 +907,7 @@ class ScribeChatView extends ItemView {
 
   updateModelInfo() {
     const provider = this.plugin.settings.defaultProvider;
-    const model = this.plugin.settings.defaultModel;
+    const model = this.plugin.getModelForProvider(provider);
     this.modelInfoEl.empty();
     this.modelInfoEl.createSpan({ text: `Model: ${provider}/${model}`, cls: "scribe-model-label" });
   }
@@ -911,7 +930,8 @@ class ScribeChatView extends ItemView {
       "gpt-4o-mini": 0.15,
     };
 
-    const model = this.plugin.settings.defaultModel;
+    const provider = this.plugin.settings.defaultProvider;
+    const model = this.plugin.getModelForProvider(provider);
     const costPer1M = costs[model] || 0.50;
     const estimatedCost = (estimatedTokens / 1000000) * costPer1M;
 
@@ -1336,19 +1356,47 @@ class ScribeSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Default Model")
-      .setDesc("Default model for chat (OpenAI)")
+      .setName("OpenAI Model")
+      .setDesc("Model for OpenAI provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gpt-5.4-nano", "GPT-5.4 Nano ($0.20/1M)")
-          .addOption("gpt-5.4-mini", "GPT-5.4 Mini ($0.75/1M)")
-          .addOption("gpt-5.4", "GPT-5.4 ($2.50/1M)")
-          .addOption("gpt-5-nano", "GPT-5 Nano ($0.05/1M)")
+          .addOption("gpt-5-nano", "GPT-5 Nano (fastest, $0.05/1M)")
           .addOption("gpt-5-mini", "GPT-5 Mini ($0.25/1M)")
           .addOption("gpt-4o-mini", "GPT-4o Mini ($0.15/1M)")
-          .setValue(this.plugin.settings.defaultModel)
+          .addOption("gpt-4o", "GPT-4o ($2.50/1M)")
+          .setValue(this.plugin.settings.openaiModel)
           .onChange(async (value) => {
-            this.plugin.settings.defaultModel = value;
+            this.plugin.settings.openaiModel = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Anthropic Model")
+      .setDesc("Model for Anthropic provider")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("claude-3-5-haiku-20241022", "Claude 3.5 Haiku (fastest)")
+          .addOption("claude-sonnet-4-20250514", "Claude Sonnet 4")
+          .addOption("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet")
+          .setValue(this.plugin.settings.anthropicModel)
+          .onChange(async (value) => {
+            this.plugin.settings.anthropicModel = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Groq Model")
+      .setDesc("Model for Groq provider (very fast, free tier)")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("llama-3.3-70b-versatile", "Llama 3.3 70B")
+          .addOption("llama-3.1-8b-instant", "Llama 3.1 8B (fastest)")
+          .addOption("mixtral-8x7b-32768", "Mixtral 8x7B")
+          .setValue(this.plugin.settings.groqModel)
+          .onChange(async (value) => {
+            this.plugin.settings.groqModel = value;
             await this.plugin.saveSettings();
           })
       );
