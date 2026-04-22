@@ -142,9 +142,10 @@ const DEFAULT_SETTINGS: ScribeSettings = {
 function buildContext(sources: Source[]): string {
   if (sources.length === 0) return "";
 
-  let context = "## Relevant context from your vault:\n\n";
+  let context = "## Relevant context:\n\n";
   for (const source of sources) {
-    context += `### From: ${source.path}`;
+    const isUrl = source.path.startsWith("http://") || source.path.startsWith("https://");
+    context += isUrl ? `### From Web: ${source.path}` : `### From: ${source.path}`;
     if (source.header) context += ` (${source.header})`;
     context += `\n${source.content}\n\n`;
   }
@@ -192,6 +193,75 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractUrls(text: string): string[] {
+  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
+  return text.match(urlRegex) || [];
+}
+
+function stripHtmlToText(html: string): string {
+  // Remove script and style elements
+  let text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+  text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
+  // Remove HTML tags
+  text = text.replace(/<[^>]+>/g, " ");
+  // Decode common HTML entities
+  text = text.replace(/&nbsp;/g, " ");
+  text = text.replace(/&amp;/g, "&");
+  text = text.replace(/&lt;/g, "<");
+  text = text.replace(/&gt;/g, ">");
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+  // Clean up whitespace
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
+}
+
+async function fetchWebPage(url: string): Promise<{ title: string; content: string } | null> {
+  try {
+    const response = await requestUrl({
+      url,
+      method: "GET",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; ObsidianPlugin/1.0)",
+      },
+      throw: false,
+    });
+
+    if (response.status >= 400) {
+      return null;
+    }
+
+    const html = response.text;
+
+    // Extract title
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : new URL(url).hostname;
+
+    // Extract main content - try common content containers
+    let content = html;
+
+    // Try to find main content area
+    const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
+                      html.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                      html.match(/<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                      html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+
+    if (mainMatch) {
+      content = mainMatch[1];
+    }
+
+    const text = stripHtmlToText(content);
+
+    // Limit content length
+    return {
+      title,
+      content: text.slice(0, 10000),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getFileName(path: string): string {
@@ -1744,9 +1814,28 @@ class ScribeChatView extends ItemView {
     searchingEl.createDiv({ cls: "scribe-searching-icon" });
     searchingEl.createDiv({ cls: "scribe-preview-searching-text", text: "Searching for relevant sources..." });
 
+    // Get vault sources
     this.pendingSources = this.fullVaultMode
       ? await this.plugin.getFullVaultContent()
       : await this.plugin.search(message, this.plugin.settings.contextSize);
+
+    // Extract and fetch any URLs in the message
+    const urls = extractUrls(message);
+    if (urls.length > 0) {
+      searchingEl.querySelector(".scribe-preview-searching-text")?.setText(`Fetching ${urls.length} web page(s)...`);
+
+      for (const url of urls) {
+        const webContent = await fetchWebPage(url);
+        if (webContent) {
+          this.pendingSources.unshift({
+            path: url,
+            content: webContent.content,
+            score: 100,
+            header: webContent.title,
+          });
+        }
+      }
+    }
 
     this.isPreviewMode = true;
     this.renderSourcePreview();
@@ -1814,6 +1903,43 @@ class ScribeChatView extends ItemView {
         this.renderSourcePreview();
       } else {
         new Notice("File not found: " + filePath);
+      }
+    });
+
+    // URL input row
+    const urlRow = addSection.createDiv({ cls: "scribe-preview-add-row" });
+    const urlInput = urlRow.createEl("input", {
+      type: "text",
+      placeholder: "Add URL (e.g., https://example.com/page)",
+      cls: "scribe-preview-add-input",
+    });
+    const addUrlBtn = urlRow.createEl("button", { text: "Fetch", cls: "scribe-btn-small" });
+    addUrlBtn.addEventListener("click", async () => {
+      const url = urlInput.value.trim();
+      if (!url) return;
+
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        new Notice("Please enter a valid URL starting with http:// or https://");
+        return;
+      }
+
+      addUrlBtn.setText("Fetching...");
+      addUrlBtn.disabled = true;
+
+      const webContent = await fetchWebPage(url);
+      if (webContent) {
+        this.pendingSources.unshift({
+          path: url,
+          content: webContent.content,
+          score: 100,
+          header: webContent.title,
+        });
+        urlInput.value = "";
+        this.renderSourcePreview();
+      } else {
+        new Notice("Failed to fetch URL: " + url);
+        addUrlBtn.setText("Fetch");
+        addUrlBtn.disabled = false;
       }
     });
 
