@@ -120,7 +120,7 @@ const DEFAULT_SETTINGS: ScribeSettings = {
   groqApiKey: "",
   ollamaBaseUrl: "http://localhost:11434",
   defaultProvider: "openai",
-  openaiModel: "gpt-5-nano",
+  openaiModel: "gpt-4o-mini",
   anthropicModel: "claude-3-5-haiku-20241022",
   groqModel: "llama-3.3-70b-versatile",
   geminiModel: "gemini-2.0-flash",
@@ -1832,12 +1832,17 @@ class ScribeChatView extends ItemView {
     const estimatedTokens = Math.ceil(totalChars / 4);
 
     const costs: Record<string, number> = {
-      "gpt-5.4-nano": 0.2,
-      "gpt-5.4-mini": 0.75,
-      "gpt-5.4": 2.5,
-      "gpt-5-nano": 0.05,
-      "gpt-5-mini": 0.25,
+      "gpt-4o": 2.5,
       "gpt-4o-mini": 0.15,
+      "gpt-4-turbo": 10,
+      "gpt-4": 30,
+      "gpt-3.5-turbo": 0.5,
+      "gemini-2.0-flash": 0,
+      "gemini-1.5-flash": 0,
+      "gemini-1.5-pro": 0,
+      "claude-sonnet-4-20250514": 3,
+      "claude-3-5-sonnet-20241022": 3,
+      "claude-3-5-haiku-20241022": 0.25,
     };
 
     const model = this.plugin.getModelForProvider(this.plugin.settings.defaultProvider);
@@ -2512,17 +2517,13 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for OpenAI provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gpt-5", "GPT-5")
-          .addOption("gpt-5-mini", "GPT-5 Mini")
-          .addOption("gpt-5-nano", "GPT-5 Nano (fastest)")
-          .addOption("gpt-4.5-preview", "GPT-4.5 Preview")
-          .addOption("gpt-4.1", "GPT-4.1")
-          .addOption("gpt-4.1-mini", "GPT-4.1 Mini")
-          .addOption("gpt-4.1-nano", "GPT-4.1 Nano")
-          .addOption("gpt-4o", "GPT-4o")
-          .addOption("gpt-4o-mini", "GPT-4o Mini")
+          .addOption("gpt-4o", "GPT-4o (recommended)")
+          .addOption("gpt-4o-mini", "GPT-4o Mini (fast)")
           .addOption("gpt-4-turbo", "GPT-4 Turbo")
           .addOption("gpt-4", "GPT-4")
+          .addOption("gpt-3.5-turbo", "GPT-3.5 Turbo (cheapest)")
+          .addOption("o1", "o1 (reasoning)")
+          .addOption("o1-mini", "o1-mini (reasoning)")
           .addOption("o3-mini", "o3-mini (reasoning)")
           .setValue(this.plugin.settings.openaiModel)
           .onChange((value) => {
@@ -2536,12 +2537,10 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for Google Gemini provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gemini-2.5-flash-preview-04-17", "Gemini 2.5 Flash (latest)")
-          .addOption("gemini-2.5-pro-preview-03-25", "Gemini 2.5 Pro (latest)")
-          .addOption("gemini-2.0-flash", "Gemini 2.0 Flash")
-          .addOption("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite")
-          .addOption("gemini-1.5-flash", "Gemini 1.5 Flash")
+          .addOption("gemini-2.0-flash", "Gemini 2.0 Flash (recommended)")
+          .addOption("gemini-1.5-flash", "Gemini 1.5 Flash (fast)")
           .addOption("gemini-1.5-pro", "Gemini 1.5 Pro")
+          .addOption("gemini-pro", "Gemini Pro (legacy)")
           .setValue(this.plugin.settings.geminiModel)
           .onChange((value) => {
             this.plugin.settings.geminiModel = value;
@@ -2554,11 +2553,11 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for Anthropic provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("claude-opus-4-20250514", "Claude Opus 4")
-          .addOption("claude-sonnet-4-20250514", "Claude Sonnet 4")
+          .addOption("claude-sonnet-4-20250514", "Claude Sonnet 4 (recommended)")
           .addOption("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet")
-          .addOption("claude-3-5-haiku-20241022", "Claude 3.5 Haiku (fastest)")
+          .addOption("claude-3-5-haiku-20241022", "Claude 3.5 Haiku (fast)")
           .addOption("claude-3-opus-20240229", "Claude 3 Opus")
+          .addOption("claude-3-haiku-20240307", "Claude 3 Haiku (cheapest)")
           .setValue(this.plugin.settings.anthropicModel)
           .onChange((value) => {
             this.plugin.settings.anthropicModel = value;
