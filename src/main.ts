@@ -1,5 +1,6 @@
 import {
   App,
+  Component,
   Plugin,
   PluginSettingTab,
   Setting,
@@ -746,7 +747,7 @@ export default class ScribePlugin extends Plugin {
     new BacklinkSuggestionsModal(this.app, unlinked, activeFile).open();
   }
 
-  async findDuplicates() {
+  findDuplicates() {
     if (this.embeddings.length === 0) {
       new Notice("Index your vault first");
       return;
@@ -795,7 +796,7 @@ export default class ScribePlugin extends Plugin {
     new DuplicatesModal(this.app, duplicates).open();
   }
 
-  async findOrphans() {
+  findOrphans() {
     if (this.embeddings.length === 0) {
       new Notice("Index your vault first");
       return;
@@ -1977,7 +1978,7 @@ class ScribeChatView extends ItemView {
         fullResponse += chunk;
         const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement;
         streamingEl.empty();
-        MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.plugin);
+        MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this);
         this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
       });
 
@@ -2057,7 +2058,7 @@ class ScribeChatView extends ItemView {
     avatar.setText(role === "user" ? "Y" : "S");
 
     const contentEl = messageEl.createDiv({ cls: "scribe-content" });
-    MarkdownRenderer.render(this.app, content, contentEl, "", this.plugin);
+    MarkdownRenderer.render(this.app, content, contentEl, "", this);
 
     if (sources?.length && this.plugin.settings.showSources) {
       this.createSourceBadges(contentEl, sources);
@@ -2681,6 +2682,7 @@ class ScribeSearchView extends ItemView {
 class ScribeResultModal extends Modal {
   content: string;
   title: string;
+  private component = new Component();
 
   constructor(app: App, content: string, title: string) {
     super(app);
@@ -2692,11 +2694,12 @@ class ScribeResultModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("scribe-modal");
+    this.component.load();
 
     contentEl.createEl("h2", { text: this.title });
 
     const resultEl = contentEl.createDiv({ cls: "scribe-modal-content" });
-    MarkdownRenderer.render(this.app, this.content, resultEl, "", null as unknown as Plugin);
+    void MarkdownRenderer.render(this.app, this.content, resultEl, "", this.component);
 
     const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
 
@@ -2712,6 +2715,7 @@ class ScribeResultModal extends Modal {
   }
 
   onClose() {
+    this.component.unload();
     this.contentEl.empty();
   }
 }
@@ -3008,6 +3012,7 @@ class FlashcardsModal extends Modal {
 
 class OutlineModal extends Modal {
   plugin: ScribePlugin;
+  private component = new Component();
 
   constructor(app: App, plugin: ScribePlugin) {
     super(app);
@@ -3018,6 +3023,7 @@ class OutlineModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("scribe-modal");
+    this.component.load();
 
     contentEl.createEl("h2", { text: "Generate outline" });
 
@@ -3044,7 +3050,7 @@ class OutlineModal extends Modal {
       try {
         const outline = await this.plugin.generateOutline(topic);
         resultEl.empty();
-        MarkdownRenderer.render(this.app, outline, resultEl, "", null as unknown as Plugin);
+        void MarkdownRenderer.render(this.app, outline, resultEl, "", this.component);
 
         // Add copy button
         const copyBtn = resultEl.createEl("button", { text: "Copy outline", cls: "scribe-btn-small" });
@@ -3067,6 +3073,7 @@ class OutlineModal extends Modal {
   }
 
   onClose() {
+    this.component.unload();
     this.contentEl.empty();
   }
 }
