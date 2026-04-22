@@ -1449,21 +1449,22 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   }
 
   async getFullVaultContent(): Promise<Source[]> {
-    const { includeFolders } = this.settings;
+    const { includeFolders, excludedFiles } = this.settings;
     const sources: Source[] = [];
-    let totalChars = 0;
-    const maxChars = 500000;
 
     for (const file of this.app.vault.getMarkdownFiles()) {
-      if (totalChars >= maxChars) break;
-
+      // Apply folder filter
       if (includeFolders.length > 0 && !includeFolders.some((folder) => file.path.startsWith(folder))) {
+        continue;
+      }
+
+      // Apply file exclusion filter
+      if (excludedFiles.includes(file.name)) {
         continue;
       }
 
       const content = await this.app.vault.read(file);
       sources.push({ path: file.path, content, score: 100 });
-      totalChars += content.length;
     }
 
     return sources;
