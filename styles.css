@@ -60,6 +60,15 @@
   background: var(--interactive-hover);
 }
 
+.scribe-btn-warning {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+
+.scribe-btn-warning:hover {
+  background: var(--background-modifier-error);
+}
+
 /* Messages */
 .scribe-messages {
   flex: 1;

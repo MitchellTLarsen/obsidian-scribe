@@ -1560,10 +1560,17 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     return response.json.choices[0].message.content;
   }
 
-  private async chatGemini(message: string, context: string, _history: Message[], model: string): Promise<string> {
+  private async chatGemini(message: string, context: string, history: Message[], model: string): Promise<string> {
     if (!this.settings.geminiApiKey) throw new Error("Gemini API key not configured");
 
-    const fullPrompt = `${SYSTEM_PROMPT}\n\n${context}\n\nUser: ${message}\n\nAssistant:`;
+    // Build conversation history for Gemini
+    let historyText = "";
+    for (const msg of history.slice(-10)) {
+      const role = msg.role === "user" ? "User" : "Assistant";
+      historyText += `${role}: ${msg.content}\n\n`;
+    }
+
+    const fullPrompt = `${SYSTEM_PROMPT}\n\n${context}\n\n${historyText}User: ${message}\n\nAssistant:`;
 
     const response = await requestUrl({
       url: API_URLS.gemini(model, this.settings.geminiApiKey),
@@ -1877,6 +1884,12 @@ class ScribeChatView extends ItemView {
   private createSourcePreviewActions() {
     const addSection = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-add-section" });
 
+    const clearAllBtn = addSection.createEl("button", { text: "Clear all sources", cls: "scribe-btn-small scribe-btn-warning" });
+    clearAllBtn.addEventListener("click", () => {
+      this.pendingSources = [];
+      this.renderSourcePreview();
+    });
+
     const getMoreBtn = addSection.createEl("button", { text: "Get more sources", cls: "scribe-btn-small" });
     getMoreBtn.addEventListener("click", () => {
       void (async () => {
@@ -1963,7 +1976,10 @@ class ScribeChatView extends ItemView {
       this.pendingMessage = "";
     });
 
-    const confirmBtn = actions.createEl("button", { text: "Send with sources", cls: "scribe-send-btn" });
+    const confirmBtn = actions.createEl("button", {
+      text: this.pendingSources.length > 0 ? "Send with sources" : "Send without sources",
+      cls: "scribe-send-btn"
+    });
     confirmBtn.addEventListener("click", () => { void this.confirmAndSend(); });
   }
 
