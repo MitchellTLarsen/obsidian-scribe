@@ -182,6 +182,9 @@ export default class ScribePlugin extends Plugin {
   indexingCancelled = false;
   indexingStatus = "";
   indexingProgress = { current: 0, total: 0 };
+  private pendingIndexQueue: Set<string> = new Set();
+  private indexDebounceTimer: number | null = null;
+  private saveDebounceTimer: number | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -220,6 +223,40 @@ export default class ScribePlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         this.updateConnectionsView();
+      })
+    );
+
+    // Auto-index on file changes
+    this.registerEvent(
+      this.app.vault.on("create", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          this.queueFileForIndexing(file.path);
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          this.queueFileForIndexing(file.path);
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          this.removeFileFromIndex(file.path);
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (file instanceof TFile && file.extension === "md") {
+          this.removeFileFromIndex(oldPath);
+          this.queueFileForIndexing(file.path);
+        }
       })
     );
   }
@@ -311,6 +348,122 @@ export default class ScribePlugin extends Plugin {
       await this.app.vault.adapter.write(this.embeddingsCachePath, JSON.stringify(this.embeddings));
     } catch (e) {
       console.error("Failed to save embeddings cache:", e);
+    }
+  }
+
+  private debouncedSaveEmbeddings() {
+    if (this.saveDebounceTimer) {
+      window.clearTimeout(this.saveDebounceTimer);
+    }
+    this.saveDebounceTimer = window.setTimeout(() => {
+      this.saveEmbeddings();
+      this.saveDebounceTimer = null;
+    }, 5000); // Save after 5 seconds of inactivity
+  }
+
+  // ============================================================================
+  // AUTO-INDEXING
+  // ============================================================================
+
+  private shouldIndexFile(filePath: string): boolean {
+    const { includeFolders, excludedFiles } = this.settings;
+
+    // Check include folders
+    if (includeFolders.length > 0 && !includeFolders.some((folder) => filePath.startsWith(folder))) {
+      return false;
+    }
+
+    // Check excluded files
+    const fileName = filePath.split("/").pop() || "";
+    if (excludedFiles.includes(fileName)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  queueFileForIndexing(filePath: string) {
+    if (!this.shouldIndexFile(filePath)) return;
+    if (!this.settings.openaiApiKey) return; // Need API key for embeddings
+
+    this.pendingIndexQueue.add(filePath);
+
+    // Debounce to batch multiple quick edits
+    if (this.indexDebounceTimer) {
+      window.clearTimeout(this.indexDebounceTimer);
+    }
+
+    this.indexDebounceTimer = window.setTimeout(() => {
+      this.processIndexQueue();
+      this.indexDebounceTimer = null;
+    }, 2000); // Wait 2 seconds after last change
+  }
+
+  private async processIndexQueue() {
+    if (this.pendingIndexQueue.size === 0) return;
+    if (this.indexing) {
+      // If full indexing is running, wait and try again
+      setTimeout(() => this.processIndexQueue(), 5000);
+      return;
+    }
+
+    const filesToIndex = Array.from(this.pendingIndexQueue);
+    this.pendingIndexQueue.clear();
+
+    console.log(`Auto-indexing ${filesToIndex.length} file(s)...`);
+
+    for (const filePath of filesToIndex) {
+      await this.indexSingleFile(filePath);
+    }
+
+    this.debouncedSaveEmbeddings();
+    this.updateConnectionsView();
+  }
+
+  async indexSingleFile(filePath: string): Promise<boolean> {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!(file instanceof TFile)) return false;
+
+    try {
+      // Remove existing embeddings for this file
+      this.embeddings = this.embeddings.filter((e) => e.path !== filePath);
+
+      // Read and chunk the file
+      const content = await this.app.vault.read(file);
+      const chunks = this.chunkText(content);
+
+      if (chunks.length === 0) return false;
+
+      // Create embeddings for each chunk
+      for (const chunk of chunks) {
+        const embedding = await this.createEmbedding(chunk.content);
+        if (embedding) {
+          this.embeddings.push({
+            path: filePath,
+            content: chunk.content,
+            embedding,
+            header: chunk.header,
+          });
+        }
+      }
+
+      console.log(`Indexed ${filePath}: ${chunks.length} chunks`);
+      return true;
+    } catch (e) {
+      console.error(`Failed to index ${filePath}:`, e);
+      return false;
+    }
+  }
+
+  removeFileFromIndex(filePath: string) {
+    const before = this.embeddings.length;
+    this.embeddings = this.embeddings.filter((e) => e.path !== filePath);
+    const removed = before - this.embeddings.length;
+
+    if (removed > 0) {
+      console.log(`Removed ${removed} embeddings for ${filePath}`);
+      this.debouncedSaveEmbeddings();
+      this.updateConnectionsView();
     }
   }
 
