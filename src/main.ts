@@ -223,6 +223,7 @@ async function fetchWebPage(url: string): Promise<{ title: string; content: stri
       method: "GET",
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; ObsidianPlugin/1.0)",
+        "Accept": "text/html,application/xhtml+xml,*/*",
       },
       throw: false,
     });
@@ -231,7 +232,28 @@ async function fetchWebPage(url: string): Promise<{ title: string; content: stri
       return null;
     }
 
-    const html = response.text;
+    const contentType = response.headers["content-type"] || "";
+    const responseText = response.text;
+
+    // Handle JSON responses
+    if (contentType.includes("application/json") || responseText.trim().startsWith("{")) {
+      try {
+        const json = JSON.parse(responseText);
+        // Try to extract meaningful text from common JSON structures
+        const textContent = json.content || json.text || json.body || json.description ||
+                           json.article?.content || json.data?.content ||
+                           JSON.stringify(json, null, 2).slice(0, 3000);
+        return {
+          title: json.title || json.name || new URL(url).hostname,
+          content: typeof textContent === "string" ? textContent.slice(0, 5000) : String(textContent).slice(0, 5000),
+        };
+      } catch {
+        return { title: new URL(url).hostname, content: responseText.slice(0, 3000) };
+      }
+    }
+
+    // Handle HTML responses
+    const html = responseText;
 
     // Extract title
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
@@ -252,10 +274,10 @@ async function fetchWebPage(url: string): Promise<{ title: string; content: stri
 
     const text = stripHtmlToText(content);
 
-    // Limit content length
+    // Limit content length to avoid rate limiting
     return {
       title,
-      content: text.slice(0, 10000),
+      content: text.slice(0, 5000),
     };
   } catch {
     return null;
