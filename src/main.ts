@@ -305,7 +305,9 @@ export default class ScribePlugin extends Plugin {
   private startupComplete = false; // Ignore file events during startup
 
   async onload() {
+    console.log("[Archivist AI] Loading plugin...");
     await this.loadSettings();
+    console.log(`[Archivist AI] Settings loaded. Provider: ${this.settings.defaultProvider}`);
 
     // Register views
     this.registerView(SCRIBE_VIEW_TYPE, (leaf) => new ScribeChatView(leaf, this));
@@ -1092,23 +1094,28 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   }
 
   async loadEmbeddings() {
+    console.log(`[Embeddings] Loading from: ${this.embeddingsCachePath}`);
     try {
       const adapter = this.app.vault.adapter;
       if (await adapter.exists(this.embeddingsCachePath)) {
         const data = await adapter.read(this.embeddingsCachePath);
         this.embeddings = JSON.parse(data);
-        // Embeddings loaded from cache
+        console.log(`[Embeddings] Loaded ${this.embeddings.length} embeddings from cache`);
+      } else {
+        console.log("[Embeddings] No cache found");
       }
-    } catch {
-      // No cache found, will index on first use
+    } catch (error) {
+      console.error("[Embeddings] Failed to load cache:", error);
     }
   }
 
   async saveEmbeddings() {
+    console.log(`[Embeddings] Saving ${this.embeddings.length} embeddings to: ${this.embeddingsCachePath}`);
     try {
       await this.app.vault.adapter.write(this.embeddingsCachePath, JSON.stringify(this.embeddings));
-    } catch {
-      // Failed to save cache - will retry on next save
+      console.log("[Embeddings] Saved successfully");
+    } catch (error) {
+      console.error("[Embeddings] Failed to save:", error);
     }
   }
 
@@ -1276,6 +1283,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       return;
     }
 
+    console.log("[Index] Starting vault indexing...");
     this.indexing = true;
     this.indexingCancelled = false;
     this.indexingStatus = "Starting...";
@@ -1291,6 +1299,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       return !excludedFiles.includes(file.name);
     });
 
+    console.log(`[Index] Found ${filesToIndex.length} files to index`);
+    console.log(`[Index] Include folders: ${includeFolders.length > 0 ? includeFolders.join(", ") : "all"}`);
+    console.log(`[Index] Excluded files: ${excludedFiles.join(", ") || "none"}`);
     this.indexingProgress.total = filesToIndex.length;
     this.embeddings = [];
 
@@ -1334,7 +1345,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     }
 
     if (this.embeddings.length > 0) {
+      console.log(`[Index] Saving ${this.embeddings.length} embeddings...`);
       await this.saveEmbeddings();
+      console.log("[Index] Embeddings saved successfully");
     }
 
     this.indexing = false;
@@ -1342,6 +1355,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       ? `Cancelled. Saved ${this.embeddings.length} chunks.`
       : `Done! ${this.embeddings.length} chunks from ${filesToIndex.length} files`;
 
+    console.log(`[Index] ${this.indexingStatus}`);
     currentNotice.hide();
     new Notice(this.indexingStatus, 5000);
   }
@@ -1552,6 +1566,10 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     const useModel = model || this.getModelForProvider(useProvider);
     const context = buildContext(sources);
 
+    console.log(`[Chat] Provider: ${useProvider}, Model: ${useModel}`);
+    console.log(`[Chat] Sources: ${sources.length}, History: ${history.length} messages`);
+    console.log(`[Chat] Context length: ${context.length} chars`);
+
     const handlers: Record<string, () => Promise<string>> = {
       openai: () => this.chatOpenAI(message, context, history, useModel),
       gemini: () => this.chatGemini(message, context, history, useModel),
@@ -1561,10 +1579,14 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     const handler = handlers[useProvider];
     if (!handler) {
+      console.error(`[Chat] Unknown provider: ${useProvider}`);
       throw new Error(`Provider ${useProvider} not configured. Please add API key in settings.`);
     }
 
-    return handler();
+    const startTime = Date.now();
+    const result = await handler();
+    console.log(`[Chat] Response received in ${Date.now() - startTime}ms, length: ${result.length} chars`);
+    return result;
   }
 
   private async chatOpenAI(message: string, context: string, history: Message[], model: string): Promise<string> {
@@ -1576,17 +1598,28 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       { role: "user", content: message },
     ];
 
-    const response = await requestUrl({
-      url: API_URLS.openai,
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.settings.openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model, messages }),
-    });
+    const body = JSON.stringify({ model, messages });
+    console.log(`[OpenAI] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
+    console.log(`[OpenAI] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
 
-    return response.json.choices[0].message.content;
+    try {
+      const response = await requestUrl({
+        url: API_URLS.openai,
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.settings.openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+
+      console.log(`[OpenAI] Response received, status: ${response.status}`);
+      return response.json.choices[0].message.content;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("[OpenAI] Error:", errMsg);
+      throw new Error(`OpenAI error: ${errMsg}`);
+    }
   }
 
   private async chatGemini(message: string, context: string, history: Message[], model: string): Promise<string> {
@@ -1643,23 +1676,35 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       { role: "user", content: message },
     ];
 
-    const response = await requestUrl({
-      url: API_URLS.anthropic,
-      method: "POST",
-      headers: {
-        "x-api-key": this.settings.anthropicApiKey,
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: `${SYSTEM_PROMPT}\n\n${context}`,
-        messages,
-      }),
+    const body = JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: `${SYSTEM_PROMPT}\n\n${context}`,
+      messages,
     });
 
-    return response.json.content[0].text;
+    console.log(`[Anthropic] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
+    console.log(`[Anthropic] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
+
+    try {
+      const response = await requestUrl({
+        url: API_URLS.anthropic,
+        method: "POST",
+        headers: {
+          "x-api-key": this.settings.anthropicApiKey,
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+        },
+        body,
+      });
+
+      console.log(`[Anthropic] Response received, status: ${response.status}`);
+      return response.json.content[0].text;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Anthropic] Error:", errMsg);
+      throw new Error(`Anthropic error: ${errMsg}`);
+    }
   }
 
   private async chatGroq(message: string, context: string, history: Message[], model: string): Promise<string> {
@@ -1671,17 +1716,28 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       { role: "user", content: message },
     ];
 
-    const response = await requestUrl({
-      url: API_URLS.groq,
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.settings.groqApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model, messages }),
-    });
+    const body = JSON.stringify({ model, messages });
+    console.log(`[Groq] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
+    console.log(`[Groq] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
 
-    return response.json.choices[0].message.content;
+    try {
+      const response = await requestUrl({
+        url: API_URLS.groq,
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.settings.groqApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+
+      console.log(`[Groq] Response received, status: ${response.status}`);
+      return response.json.choices[0].message.content;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("[Groq] Error:", errMsg);
+      throw new Error(`Groq error: ${errMsg}`);
+    }
   }
 
   async chatStream(
