@@ -315,20 +315,20 @@ export default class ScribePlugin extends Plugin {
     this.registerView(SCRIBE_SEARCH_VIEW_TYPE, (leaf) => new ScribeSearchView(leaf, this));
 
     // Ribbon icons
-    this.addRibbonIcon("message-square", "Open Scribe AI Chat", () => { void this.activateView(); });
-    this.addRibbonIcon("git-branch", "Open Scribe Connections", () => { void this.activateConnectionsView(); });
-    this.addRibbonIcon("search", "Open Scribe Semantic Search", () => { void this.activateSearchView(); });
+    this.addRibbonIcon("message-square", "Open chat", () => { void this.activateView(); });
+    this.addRibbonIcon("git-branch", "Open connections", () => { void this.activateConnectionsView(); });
+    this.addRibbonIcon("search", "Open semantic search", () => { void this.activateSearchView(); });
 
     // Core Commands
     this.addCommand({
       id: "open-scribe-chat",
-      name: "Open Scribe AI chat",
+      name: "Open chat",
       callback: () => { void this.activateView(); },
     });
 
     this.addCommand({
       id: "open-scribe-connections",
-      name: "Open Scribe connections",
+      name: "Open connections",
       callback: () => { void this.activateConnectionsView(); },
     });
 
