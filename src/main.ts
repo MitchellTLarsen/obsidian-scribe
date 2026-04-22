@@ -2484,12 +2484,17 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for OpenAI provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gpt-4.1-nano", "GPT-4.1 Nano (fastest)")
-          .addOption("gpt-4.1-mini", "GPT-4.1 Mini")
-          .addOption("gpt-4.1", "GPT-4.1")
+          .addOption("gpt-5", "GPT-5")
+          .addOption("gpt-5-mini", "GPT-5 Mini")
+          .addOption("gpt-5-nano", "GPT-5 Nano (fastest)")
           .addOption("gpt-4.5-preview", "GPT-4.5 Preview")
-          .addOption("gpt-4o-mini", "GPT-4o Mini")
+          .addOption("gpt-4.1", "GPT-4.1")
+          .addOption("gpt-4.1-mini", "GPT-4.1 Mini")
+          .addOption("gpt-4.1-nano", "GPT-4.1 Nano")
           .addOption("gpt-4o", "GPT-4o")
+          .addOption("gpt-4o-mini", "GPT-4o Mini")
+          .addOption("gpt-4-turbo", "GPT-4 Turbo")
+          .addOption("gpt-4", "GPT-4")
           .addOption("o3-mini", "o3-mini (reasoning)")
           .setValue(this.plugin.settings.openaiModel)
           .onChange((value) => {
@@ -2523,9 +2528,11 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for Anthropic provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("claude-3-5-haiku-20241022", "Claude 3.5 Haiku (fastest)")
+          .addOption("claude-opus-4-20250514", "Claude Opus 4")
           .addOption("claude-sonnet-4-20250514", "Claude Sonnet 4")
           .addOption("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet")
+          .addOption("claude-3-5-haiku-20241022", "Claude 3.5 Haiku (fastest)")
+          .addOption("claude-3-opus-20240229", "Claude 3 Opus")
           .setValue(this.plugin.settings.anthropicModel)
           .onChange((value) => {
             this.plugin.settings.anthropicModel = value;
