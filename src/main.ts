@@ -194,7 +194,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function extractUrls(text: string): string[] {
-  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
+  const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
   return text.match(urlRegex) || [];
 }
 
@@ -315,33 +315,33 @@ export default class ScribePlugin extends Plugin {
     this.registerView(SCRIBE_SEARCH_VIEW_TYPE, (leaf) => new ScribeSearchView(leaf, this));
 
     // Ribbon icons
-    this.addRibbonIcon("message-square", "Open Scribe AI Chat", () => this.activateView());
-    this.addRibbonIcon("git-branch", "Open Scribe Connections", () => this.activateConnectionsView());
-    this.addRibbonIcon("search", "Open Scribe Semantic Search", () => this.activateSearchView());
+    this.addRibbonIcon("message-square", "Open Scribe AI Chat", () => { void this.activateView(); });
+    this.addRibbonIcon("git-branch", "Open Scribe Connections", () => { void this.activateConnectionsView(); });
+    this.addRibbonIcon("search", "Open Scribe Semantic Search", () => { void this.activateSearchView(); });
 
     // Core Commands
     this.addCommand({
       id: "open-scribe-chat",
       name: "Open Scribe AI chat",
-      callback: () => this.activateView(),
+      callback: () => { void this.activateView(); },
     });
 
     this.addCommand({
       id: "open-scribe-connections",
       name: "Open Scribe connections",
-      callback: () => this.activateConnectionsView(),
+      callback: () => { void this.activateConnectionsView(); },
     });
 
     this.addCommand({
       id: "open-scribe-search",
       name: "Open semantic search",
-      callback: () => this.activateSearchView(),
+      callback: () => { void this.activateSearchView(); },
     });
 
     this.addCommand({
       id: "index-vault",
       name: "Index vault for RAG",
-      callback: () => this.indexVault(),
+      callback: () => { void this.indexVault(); },
     });
 
     // Writing Commands
@@ -349,93 +349,93 @@ export default class ScribePlugin extends Plugin {
       id: "summarize-note",
       name: "Summarize current note",
       editorCallback: (editor: Editor, ctx) => {
-        if (ctx instanceof MarkdownView) this.summarizeNote(editor);
+        if (ctx instanceof MarkdownView) void this.summarizeNote(editor);
       },
     });
 
     this.addCommand({
       id: "summarize-selection",
       name: "Summarize selection",
-      editorCallback: (editor: Editor) => this.summarizeSelection(editor),
+      editorCallback: (editor: Editor) => { void this.summarizeSelection(editor); },
     });
 
     this.addCommand({
       id: "continue-writing",
       name: "Continue writing from cursor",
-      editorCallback: (editor: Editor) => this.continueWriting(editor),
+      editorCallback: (editor: Editor) => { void this.continueWriting(editor); },
     });
 
     this.addCommand({
       id: "expand-selection",
       name: "Expand/elaborate on selection",
-      editorCallback: (editor: Editor) => this.expandSelection(editor),
+      editorCallback: (editor: Editor) => { void this.expandSelection(editor); },
     });
 
     this.addCommand({
       id: "simplify-selection",
       name: "Simplify selection",
-      editorCallback: (editor: Editor) => this.simplifySelection(editor),
+      editorCallback: (editor: Editor) => { void this.simplifySelection(editor); },
     });
 
     this.addCommand({
       id: "fix-grammar",
       name: "Fix grammar and spelling",
-      editorCallback: (editor: Editor) => this.fixGrammar(editor),
+      editorCallback: (editor: Editor) => { void this.fixGrammar(editor); },
     });
 
     // Organization Commands
     this.addCommand({
       id: "suggest-tags",
       name: "Suggest tags for current note",
-      editorCallback: (editor: Editor, ctx) => {
-        if (ctx instanceof MarkdownView) this.suggestTags(ctx);
+      editorCallback: (_editor: Editor, ctx) => {
+        if (ctx instanceof MarkdownView) void this.suggestTags(ctx);
       },
     });
 
     this.addCommand({
       id: "suggest-links",
       name: "Suggest backlinks for current note",
-      callback: () => this.suggestBacklinks(),
+      callback: () => { void this.suggestBacklinks(); },
     });
 
     this.addCommand({
       id: "find-duplicates",
       name: "Find similar/duplicate notes",
-      callback: () => this.findDuplicates(),
+      callback: () => { void this.findDuplicates(); },
     });
 
     this.addCommand({
       id: "find-orphans",
       name: "Find orphan notes (no connections)",
-      callback: () => this.findOrphans(),
+      callback: () => { void this.findOrphans(); },
     });
 
     // Generation Commands
     this.addCommand({
       id: "generate-note",
       name: "Generate note from topic",
-      callback: () => this.showGenerateNoteModal(),
+      callback: () => { this.showGenerateNoteModal(); },
     });
 
     this.addCommand({
       id: "generate-flashcards",
       name: "Generate flashcards from current note",
-      editorCallback: (editor: Editor, ctx) => {
-        if (ctx instanceof MarkdownView) this.generateFlashcards(ctx);
+      editorCallback: (_editor: Editor, ctx) => {
+        if (ctx instanceof MarkdownView) void this.generateFlashcards(ctx);
       },
     });
 
     this.addCommand({
       id: "generate-outline",
       name: "Generate outline for topic",
-      callback: () => this.showOutlineModal(),
+      callback: () => { this.showOutlineModal(); },
     });
 
     // Chat Commands
     this.addCommand({
       id: "save-chat-history",
       name: "Save current chat as note",
-      callback: () => this.saveChatHistory(),
+      callback: () => { void this.saveChatHistory(); },
     });
 
     // Context menu
@@ -1023,35 +1023,35 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         item
           .setTitle("Scribe: Summarize")
           .setIcon("file-text")
-          .onClick(() => this.summarizeSelection(editor))
+          .onClick(() => { void this.summarizeSelection(editor); })
       );
 
       menu.addItem((item) =>
         item
           .setTitle("Scribe: Expand")
           .setIcon("maximize-2")
-          .onClick(() => this.expandSelection(editor))
+          .onClick(() => { void this.expandSelection(editor); })
       );
 
       menu.addItem((item) =>
         item
           .setTitle("Scribe: Simplify")
           .setIcon("minimize-2")
-          .onClick(() => this.simplifySelection(editor))
+          .onClick(() => { void this.simplifySelection(editor); })
       );
 
       menu.addItem((item) =>
         item
           .setTitle("Scribe: Fix grammar")
           .setIcon("check")
-          .onClick(() => this.fixGrammar(editor))
+          .onClick(() => { void this.fixGrammar(editor); })
       );
     } else {
       menu.addItem((item) =>
         item
           .setTitle("Scribe: Continue writing")
           .setIcon("edit")
-          .onClick(() => this.continueWriting(editor))
+          .onClick(() => { void this.continueWriting(editor); })
       );
     }
 
@@ -1060,7 +1060,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         .setTitle("Scribe: Suggest tags")
         .setIcon("tag")
         .onClick(() => {
-          if (view instanceof MarkdownView) this.suggestTags(view);
+          if (view instanceof MarkdownView) void this.suggestTags(view);
         })
     );
 
@@ -2108,9 +2108,8 @@ class ScribeChatView extends ItemView {
     const fileUploadInput = uploadRow.createEl("input", {
       type: "file",
       attr: { accept: ".txt,.md,.json,.csv,.html,.xml,.js,.ts,.py,.java,.c,.cpp,.css" },
-      cls: "scribe-file-upload-input",
+      cls: "scribe-file-upload-input is-hidden",
     });
-    fileUploadInput.style.display = "none";
 
     const uploadLabel = uploadRow.createEl("span", {
       text: "Upload file from computer",
@@ -2515,7 +2514,7 @@ class ScribeSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName("Archivist AI settings").setHeading();
+    new Setting(containerEl).setName("General").setHeading();
 
     this.addApiKeySettings(containerEl);
     this.addProviderSettings(containerEl);
@@ -2569,7 +2568,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addProviderSettings(containerEl: HTMLElement) {
-    new Setting(containerEl).setName("Provider settings").setHeading();
+    new Setting(containerEl).setName("Providers").setHeading();
 
     new Setting(containerEl)
       .setName("Default provider")
@@ -2682,7 +2681,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addIndexingSettings(containerEl: HTMLElement) {
-    new Setting(containerEl).setName("Indexing settings").setHeading();
+    new Setting(containerEl).setName("Indexing").setHeading();
 
     this.addTagInput(containerEl, "Include folders", "Only index these folders (leave empty for all)", "Folder name...", "includeFolders");
     this.addTagInput(containerEl, "Excluded files", "Don't index these files", "File name...", "excludedFiles");
@@ -2751,7 +2750,7 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   private addChatSettings(containerEl: HTMLElement) {
-    new Setting(containerEl).setName("Chat settings").setHeading();
+    new Setting(containerEl).setName("Chat").setHeading();
 
     new Setting(containerEl)
       .setName("Show sources")
