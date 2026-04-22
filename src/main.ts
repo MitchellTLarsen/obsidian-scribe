@@ -2484,13 +2484,36 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for OpenAI provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gpt-5-nano", "GPT-5 Nano (fastest, $0.05/1M)")
-          .addOption("gpt-5-mini", "GPT-5 Mini ($0.25/1M)")
-          .addOption("gpt-4o-mini", "GPT-4o Mini ($0.15/1M)")
-          .addOption("gpt-4o", "GPT-4o ($2.50/1M)")
+          .addOption("gpt-4.1-nano", "GPT-4.1 Nano (fastest)")
+          .addOption("gpt-4.1-mini", "GPT-4.1 Mini")
+          .addOption("gpt-4.1", "GPT-4.1")
+          .addOption("gpt-4.5-preview", "GPT-4.5 Preview")
+          .addOption("gpt-4o-mini", "GPT-4o Mini")
+          .addOption("gpt-4o", "GPT-4o")
+          .addOption("o3-mini", "o3-mini (reasoning)")
           .setValue(this.plugin.settings.openaiModel)
           .onChange((value) => {
             this.plugin.settings.openaiModel = value;
+            void this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Gemini model")
+      .setDesc("Model for Google Gemini provider")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("gemini-3.0-flash", "Gemini 3.0 Flash")
+          .addOption("gemini-3.0-pro", "Gemini 3.0 Pro")
+          .addOption("gemini-2.5-flash-preview-04-17", "Gemini 2.5 Flash")
+          .addOption("gemini-2.5-pro-preview-03-25", "Gemini 2.5 Pro")
+          .addOption("gemini-2.0-flash", "Gemini 2.0 Flash")
+          .addOption("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite")
+          .addOption("gemini-1.5-flash", "Gemini 1.5 Flash")
+          .addOption("gemini-1.5-pro", "Gemini 1.5 Pro")
+          .setValue(this.plugin.settings.geminiModel)
+          .onChange((value) => {
+            this.plugin.settings.geminiModel = value;
             void this.plugin.saveSettings();
           })
       );
