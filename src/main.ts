@@ -410,19 +410,43 @@ export default class ScribePlugin extends Plugin {
     const filesToIndex = Array.from(this.pendingIndexQueue);
     this.pendingIndexQueue.clear();
 
-    console.log(`Auto-indexing ${filesToIndex.length} file(s)...`);
+    const total = filesToIndex.length;
+    const notice = new Notice(`Re-indexing ${total} file(s)...`, 0);
 
-    for (const filePath of filesToIndex) {
-      await this.indexSingleFile(filePath);
+    let indexed = 0;
+    let failed = 0;
+
+    for (let i = 0; i < filesToIndex.length; i++) {
+      const filePath = filesToIndex[i];
+      const fileName = getFileName(filePath);
+      notice.setMessage(`Re-indexing (${i + 1}/${total}): ${fileName}`);
+
+      const success = await this.indexSingleFile(filePath);
+      if (success) {
+        indexed++;
+      } else {
+        failed++;
+      }
+    }
+
+    notice.hide();
+
+    // Show completion notice
+    if (failed > 0) {
+      new Notice(`Re-indexed ${indexed} file(s), ${failed} failed`, 3000);
+    } else {
+      new Notice(`Re-indexed ${indexed} file(s)`, 2000);
     }
 
     this.debouncedSaveEmbeddings();
     this.updateConnectionsView();
   }
 
-  async indexSingleFile(filePath: string): Promise<boolean> {
+  async indexSingleFile(filePath: string, showNotice = false): Promise<boolean> {
     const file = this.app.vault.getAbstractFileByPath(filePath);
     if (!(file instanceof TFile)) return false;
+
+    const notice = showNotice ? new Notice(`Indexing: ${getFileName(filePath)}...`, 0) : null;
 
     try {
       // Remove existing embeddings for this file
@@ -432,10 +456,18 @@ export default class ScribePlugin extends Plugin {
       const content = await this.app.vault.read(file);
       const chunks = this.chunkText(content);
 
-      if (chunks.length === 0) return false;
+      if (chunks.length === 0) {
+        notice?.hide();
+        return false;
+      }
 
       // Create embeddings for each chunk
-      for (const chunk of chunks) {
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        if (notice && chunks.length > 1) {
+          notice.setMessage(`Indexing: ${getFileName(filePath)} (${i + 1}/${chunks.length})`);
+        }
+
         const embedding = await this.createEmbedding(chunk.content);
         if (embedding) {
           this.embeddings.push({
@@ -447,9 +479,11 @@ export default class ScribePlugin extends Plugin {
         }
       }
 
+      notice?.hide();
       console.log(`Indexed ${filePath}: ${chunks.length} chunks`);
       return true;
     } catch (e) {
+      notice?.hide();
       console.error(`Failed to index ${filePath}:`, e);
       return false;
     }
@@ -461,6 +495,7 @@ export default class ScribePlugin extends Plugin {
     const removed = before - this.embeddings.length;
 
     if (removed > 0) {
+      new Notice(`Removed: ${getFileName(filePath)}`, 1500);
       console.log(`Removed ${removed} embeddings for ${filePath}`);
       this.debouncedSaveEmbeddings();
       this.updateConnectionsView();
