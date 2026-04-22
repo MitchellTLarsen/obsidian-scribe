@@ -923,3 +923,309 @@
 .scribe-connections-list {
   animation: scribe-connection-refresh 0.2s ease-out;
 }
+
+/* ============================================
+   SEMANTIC SEARCH VIEW
+   ============================================ */
+
+.scribe-search-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.scribe-search-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.scribe-search-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.scribe-search-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.scribe-search-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 14px;
+}
+
+.scribe-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.scribe-search-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.scribe-search-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.scribe-search-results-header {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.scribe-search-result-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scribe-search-result-item:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.scribe-search-score {
+  width: 45px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+}
+
+.scribe-search-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.scribe-search-name {
+  font-weight: 500;
+  color: var(--text-normal);
+  margin-bottom: 4px;
+}
+
+.scribe-search-section {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.scribe-search-preview {
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+/* ============================================
+   MODALS
+   ============================================ */
+
+.scribe-modal {
+  padding: 20px;
+  max-width: 600px;
+}
+
+.scribe-modal h2 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+}
+
+.scribe-modal-desc {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.scribe-modal-content {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.scribe-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.scribe-modal-close {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.scribe-modal-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.scribe-modal-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.scribe-modal-result {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.scribe-generate-form label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+}
+
+/* Suggestions List */
+.scribe-suggestions-list,
+.scribe-duplicates-list,
+.scribe-orphans-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.scribe-suggestion-item,
+.scribe-duplicate-item,
+.scribe-orphan-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--background-primary);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.scribe-suggestion-info {
+  flex: 1;
+}
+
+.scribe-suggestion-name,
+.scribe-duplicate-name,
+.scribe-orphan-name {
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.scribe-duplicate-name:hover,
+.scribe-orphan-name:hover {
+  color: var(--interactive-accent);
+}
+
+.scribe-suggestion-score,
+.scribe-orphan-score {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.scribe-duplicate-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-warning);
+  white-space: nowrap;
+}
+
+.scribe-duplicate-files {
+  flex: 1;
+}
+
+/* ============================================
+   FLASHCARDS
+   ============================================ */
+
+.scribe-flashcards-modal {
+  min-width: 400px;
+}
+
+.scribe-flashcard-container {
+  text-align: center;
+}
+
+.scribe-flashcard-progress {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.scribe-flashcard {
+  padding: 30px;
+  background: var(--background-secondary);
+  border-radius: 12px;
+  margin-bottom: 20px;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.scribe-flashcard-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scribe-flashcard-text {
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.scribe-flashcard-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ============================================
+   CONTEXT NOTICE
+   ============================================ */
+
+.scribe-context-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  animation: scribe-fade-in 0.2s ease-out;
+}

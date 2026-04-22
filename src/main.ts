@@ -9,6 +9,11 @@ import {
   TFile,
   Notice,
   requestUrl,
+  Editor,
+  MarkdownView,
+  Menu,
+  Modal,
+  TFolder,
 } from "obsidian";
 
 // ============================================================================
@@ -61,12 +66,34 @@ interface Connection {
   bestHeader?: string;
 }
 
+interface Flashcard {
+  question: string;
+  answer: string;
+  source: string;
+}
+
+interface ChatSession {
+  id: string;
+  name: string;
+  messages: Message[];
+  sources: Source[];
+  timestamp: number;
+}
+
+interface SearchResult {
+  path: string;
+  content: string;
+  score: number;
+  header?: string;
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const SCRIBE_VIEW_TYPE = "scribe-chat-view";
 const SCRIBE_CONNECTIONS_VIEW_TYPE = "scribe-connections-view";
+const SCRIBE_SEARCH_VIEW_TYPE = "scribe-search-view";
 
 const API_URLS = {
   openai: "https://api.openai.com/v1/chat/completions",
@@ -192,12 +219,14 @@ export default class ScribePlugin extends Plugin {
     // Register views
     this.registerView(SCRIBE_VIEW_TYPE, (leaf) => new ScribeChatView(leaf, this));
     this.registerView(SCRIBE_CONNECTIONS_VIEW_TYPE, (leaf) => new ScribeConnectionsView(leaf, this));
+    this.registerView(SCRIBE_SEARCH_VIEW_TYPE, (leaf) => new ScribeSearchView(leaf, this));
 
     // Ribbon icons
     this.addRibbonIcon("message-square", "Open Scribe AI Chat", () => this.activateView());
     this.addRibbonIcon("git-branch", "Open Scribe Connections", () => this.activateConnectionsView());
+    this.addRibbonIcon("search", "Open Scribe Semantic Search", () => this.activateSearchView());
 
-    // Commands
+    // Core Commands
     this.addCommand({
       id: "open-scribe-chat",
       name: "Open Scribe AI Chat",
@@ -211,10 +240,125 @@ export default class ScribePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "open-scribe-search",
+      name: "Open Semantic Search",
+      callback: () => this.activateSearchView(),
+    });
+
+    this.addCommand({
       id: "index-vault",
       name: "Index vault for RAG",
       callback: () => this.indexVault(),
     });
+
+    // Writing Commands
+    this.addCommand({
+      id: "summarize-note",
+      name: "Summarize current note",
+      editorCallback: (editor: Editor, ctx) => {
+        if (ctx instanceof MarkdownView) this.summarizeNote(editor);
+      },
+    });
+
+    this.addCommand({
+      id: "summarize-selection",
+      name: "Summarize selection",
+      editorCallback: (editor: Editor) => this.summarizeSelection(editor),
+    });
+
+    this.addCommand({
+      id: "continue-writing",
+      name: "Continue writing from cursor",
+      editorCallback: (editor: Editor) => this.continueWriting(editor),
+    });
+
+    this.addCommand({
+      id: "expand-selection",
+      name: "Expand/elaborate on selection",
+      editorCallback: (editor: Editor) => this.expandSelection(editor),
+    });
+
+    this.addCommand({
+      id: "simplify-selection",
+      name: "Simplify selection",
+      editorCallback: (editor: Editor) => this.simplifySelection(editor),
+    });
+
+    this.addCommand({
+      id: "fix-grammar",
+      name: "Fix grammar and spelling",
+      editorCallback: (editor: Editor) => this.fixGrammar(editor),
+    });
+
+    // Organization Commands
+    this.addCommand({
+      id: "suggest-tags",
+      name: "Suggest tags for current note",
+      editorCallback: (editor: Editor, ctx) => {
+        if (ctx instanceof MarkdownView) this.suggestTags(ctx);
+      },
+    });
+
+    this.addCommand({
+      id: "suggest-links",
+      name: "Suggest backlinks for current note",
+      callback: () => this.suggestBacklinks(),
+    });
+
+    this.addCommand({
+      id: "find-duplicates",
+      name: "Find similar/duplicate notes",
+      callback: () => this.findDuplicates(),
+    });
+
+    this.addCommand({
+      id: "find-orphans",
+      name: "Find orphan notes (no connections)",
+      callback: () => this.findOrphans(),
+    });
+
+    // Generation Commands
+    this.addCommand({
+      id: "generate-note",
+      name: "Generate note from topic",
+      callback: () => this.showGenerateNoteModal(),
+    });
+
+    this.addCommand({
+      id: "generate-flashcards",
+      name: "Generate flashcards from current note",
+      editorCallback: (editor: Editor, ctx) => {
+        if (ctx instanceof MarkdownView) this.generateFlashcards(ctx);
+      },
+    });
+
+    this.addCommand({
+      id: "generate-outline",
+      name: "Generate outline for topic",
+      callback: () => this.showOutlineModal(),
+    });
+
+    // Chat Commands
+    this.addCommand({
+      id: "chat-with-note",
+      name: "Chat about current note",
+      editorCallback: (editor: Editor, ctx) => {
+        if (ctx instanceof MarkdownView) this.chatWithNote(ctx);
+      },
+    });
+
+    this.addCommand({
+      id: "save-chat-history",
+      name: "Save current chat as note",
+      callback: () => this.saveChatHistory(),
+    });
+
+    // Context menu
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor, view: MarkdownView) => {
+        this.addEditorContextMenu(menu, editor, view);
+      })
+    );
 
     this.addSettingTab(new ScribeSettingTab(this.app, this));
     await this.loadEmbeddings();
@@ -301,6 +445,547 @@ export default class ScribePlugin extends Plugin {
         view.refresh();
       }
     }
+  }
+
+  async activateSearchView() {
+    const { workspace } = this.app;
+    const leaves = workspace.getLeavesOfType(SCRIBE_SEARCH_VIEW_TYPE);
+
+    if (leaves.length > 0) {
+      workspace.revealLeaf(leaves[0]);
+      return;
+    }
+
+    const leaf = workspace.getRightLeaf(false);
+    if (leaf) {
+      await leaf.setViewState({ type: SCRIBE_SEARCH_VIEW_TYPE, active: true });
+      workspace.revealLeaf(leaf);
+    }
+  }
+
+  // ============================================================================
+  // WRITING COMMANDS
+  // ============================================================================
+
+  async summarizeNote(editor: Editor) {
+    const content = editor.getValue();
+    if (!content.trim()) {
+      new Notice("Note is empty");
+      return;
+    }
+
+    const notice = new Notice("Summarizing note...", 0);
+
+    try {
+      const summary = await this.chat(
+        "Please provide a concise summary of the following note. Focus on the key points and main ideas:\n\n" + content,
+        [],
+        []
+      );
+
+      notice.hide();
+      new ScribeResultModal(this.app, summary, "Note Summary").open();
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to summarize: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async summarizeSelection(editor: Editor) {
+    const selection = editor.getSelection();
+    if (!selection.trim()) {
+      new Notice("No text selected");
+      return;
+    }
+
+    const notice = new Notice("Summarizing selection...", 0);
+
+    try {
+      const summary = await this.chat(
+        "Please provide a concise summary of the following text:\n\n" + selection,
+        [],
+        []
+      );
+
+      notice.hide();
+      new ScribeResultModal(this.app, summary, "Selection Summary").open();
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to summarize: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async continueWriting(editor: Editor) {
+    const cursor = editor.getCursor();
+    const textBeforeCursor = editor.getRange({ line: 0, ch: 0 }, cursor);
+
+    if (!textBeforeCursor.trim()) {
+      new Notice("Write some content first");
+      return;
+    }
+
+    const notice = new Notice("Continuing writing...", 0);
+
+    try {
+      // Get relevant context from vault
+      const lastParagraph = textBeforeCursor.split("\n\n").pop() || textBeforeCursor;
+      const sources = await this.search(lastParagraph, 3);
+
+      const continuation = await this.chat(
+        `Continue writing naturally from where this text ends. Match the style and tone. Don't repeat what's already written:\n\n${textBeforeCursor.slice(-2000)}`,
+        sources,
+        []
+      );
+
+      notice.hide();
+      editor.replaceRange("\n\n" + continuation, cursor);
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to continue: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async expandSelection(editor: Editor) {
+    const selection = editor.getSelection();
+    if (!selection.trim()) {
+      new Notice("No text selected");
+      return;
+    }
+
+    const notice = new Notice("Expanding text...", 0);
+
+    try {
+      const sources = await this.search(selection, 3);
+      const expanded = await this.chat(
+        `Expand and elaborate on the following text with more detail, examples, or explanation. Use context from related notes if relevant:\n\n${selection}`,
+        sources,
+        []
+      );
+
+      notice.hide();
+      editor.replaceSelection(expanded);
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to expand: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async simplifySelection(editor: Editor) {
+    const selection = editor.getSelection();
+    if (!selection.trim()) {
+      new Notice("No text selected");
+      return;
+    }
+
+    const notice = new Notice("Simplifying text...", 0);
+
+    try {
+      const simplified = await this.chat(
+        `Simplify the following text to make it clearer and easier to understand while keeping the core meaning:\n\n${selection}`,
+        [],
+        []
+      );
+
+      notice.hide();
+      editor.replaceSelection(simplified);
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to simplify: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async fixGrammar(editor: Editor) {
+    const selection = editor.getSelection();
+    if (!selection.trim()) {
+      new Notice("No text selected");
+      return;
+    }
+
+    const notice = new Notice("Fixing grammar...", 0);
+
+    try {
+      const fixed = await this.chat(
+        `Fix any grammar, spelling, and punctuation errors in the following text. Keep the original meaning and style:\n\n${selection}`,
+        [],
+        []
+      );
+
+      notice.hide();
+      editor.replaceSelection(fixed);
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to fix grammar: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // ============================================================================
+  // ORGANIZATION COMMANDS
+  // ============================================================================
+
+  async suggestTags(view: MarkdownView) {
+    const content = view.editor.getValue();
+    if (!content.trim()) {
+      new Notice("Note is empty");
+      return;
+    }
+
+    const notice = new Notice("Analyzing note for tags...", 0);
+
+    try {
+      // Get existing tags from vault for context
+      const allTags = new Set<string>();
+      this.app.vault.getMarkdownFiles().forEach((file) => {
+        const cache = this.app.metadataCache.getFileCache(file);
+        if (cache?.tags) {
+          cache.tags.forEach((t) => allTags.add(t.tag));
+        }
+      });
+
+      const existingTags = Array.from(allTags).slice(0, 50).join(", ");
+
+      const suggestions = await this.chat(
+        `Suggest relevant tags for this note. Consider existing tags in the vault: ${existingTags}\n\nNote content:\n${content.slice(0, 3000)}\n\nProvide 3-5 tags in the format: #tag1, #tag2, #tag3`,
+        [],
+        []
+      );
+
+      notice.hide();
+      new ScribeResultModal(this.app, suggestions, "Suggested Tags").open();
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to suggest tags: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async suggestBacklinks() {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      new Notice("No active file");
+      return;
+    }
+
+    const connections = this.findSimilarNotes(activeFile.path, 10);
+    if (connections.length === 0) {
+      new Notice("No similar notes found. Try indexing your vault first.");
+      return;
+    }
+
+    // Filter to notes not already linked
+    const content = await this.app.vault.read(activeFile);
+    const unlinked = connections.filter((c) => !content.includes(`[[${getFileName(c.path)}]]`));
+
+    if (unlinked.length === 0) {
+      new Notice("All similar notes are already linked!");
+      return;
+    }
+
+    new BacklinkSuggestionsModal(this.app, unlinked, activeFile).open();
+  }
+
+  async findDuplicates() {
+    if (this.embeddings.length === 0) {
+      new Notice("Index your vault first");
+      return;
+    }
+
+    const notice = new Notice("Finding duplicates...", 0);
+
+    // Group embeddings by file
+    const fileEmbeddings = new Map<string, number[][]>();
+    for (const entry of this.embeddings) {
+      const existing = fileEmbeddings.get(entry.path) || [];
+      existing.push(entry.embedding);
+      fileEmbeddings.set(entry.path, existing);
+    }
+
+    // Calculate average embeddings per file
+    const fileAvgEmbeddings: Array<{ path: string; embedding: number[] }> = [];
+    for (const [path, embeddings] of fileEmbeddings) {
+      const avg = this.averageEmbeddings(embeddings);
+      fileAvgEmbeddings.push({ path, embedding: avg });
+    }
+
+    // Find highly similar pairs
+    const duplicates: Array<{ path1: string; path2: string; score: number }> = [];
+    for (let i = 0; i < fileAvgEmbeddings.length; i++) {
+      for (let j = i + 1; j < fileAvgEmbeddings.length; j++) {
+        const score = cosineSimilarity(fileAvgEmbeddings[i].embedding, fileAvgEmbeddings[j].embedding);
+        if (score > 0.85) {
+          duplicates.push({
+            path1: fileAvgEmbeddings[i].path,
+            path2: fileAvgEmbeddings[j].path,
+            score: Math.round(score * 100),
+          });
+        }
+      }
+    }
+
+    notice.hide();
+
+    if (duplicates.length === 0) {
+      new Notice("No duplicate notes found");
+      return;
+    }
+
+    duplicates.sort((a, b) => b.score - a.score);
+    new DuplicatesModal(this.app, duplicates).open();
+  }
+
+  async findOrphans() {
+    if (this.embeddings.length === 0) {
+      new Notice("Index your vault first");
+      return;
+    }
+
+    const notice = new Notice("Finding orphan notes...", 0);
+
+    // Get all indexed files
+    const indexedFiles = new Set(this.embeddings.map((e) => e.path));
+
+    // Find files with no strong connections
+    const orphans: Array<{ path: string; maxScore: number }> = [];
+
+    for (const filePath of indexedFiles) {
+      const connections = this.findSimilarNotes(filePath, 5);
+      const maxScore = connections.length > 0 ? Math.max(...connections.map((c) => c.score)) : 0;
+
+      if (maxScore < 40) {
+        orphans.push({ path: filePath, maxScore });
+      }
+    }
+
+    notice.hide();
+
+    if (orphans.length === 0) {
+      new Notice("No orphan notes found - all notes are connected!");
+      return;
+    }
+
+    orphans.sort((a, b) => a.maxScore - b.maxScore);
+    new OrphansModal(this.app, orphans).open();
+  }
+
+  // ============================================================================
+  // GENERATION COMMANDS
+  // ============================================================================
+
+  showGenerateNoteModal() {
+    new GenerateNoteModal(this.app, this).open();
+  }
+
+  async generateNoteFromTopic(topic: string, folder?: string): Promise<TFile | null> {
+    const notice = new Notice("Generating note...", 0);
+
+    try {
+      // Get relevant context
+      const sources = await this.search(topic, 5);
+
+      const content = await this.chat(
+        `Create a comprehensive note about: ${topic}\n\nUse relevant information from the provided context. Format with proper markdown headings, bullet points, and sections.`,
+        sources,
+        []
+      );
+
+      notice.hide();
+
+      // Create the file
+      const safeName = topic.replace(/[^a-zA-Z0-9 ]/g, "").slice(0, 50);
+      const fileName = `${safeName}.md`;
+      const filePath = folder ? `${folder}/${fileName}` : fileName;
+
+      const file = await this.app.vault.create(filePath, `# ${topic}\n\n${content}`);
+      new Notice(`Created: ${filePath}`);
+
+      return file;
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to generate: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
+
+  async generateFlashcards(view: MarkdownView) {
+    const content = view.editor.getValue();
+    if (!content.trim()) {
+      new Notice("Note is empty");
+      return;
+    }
+
+    const notice = new Notice("Generating flashcards...", 0);
+
+    try {
+      const flashcardsText = await this.chat(
+        `Create flashcards from this note content. Format each as:
+Q: [question]
+A: [answer]
+
+Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
+        [],
+        []
+      );
+
+      notice.hide();
+
+      // Parse flashcards
+      const flashcards: Flashcard[] = [];
+      const lines = flashcardsText.split("\n");
+      let currentQ = "";
+
+      for (const line of lines) {
+        if (line.startsWith("Q:")) {
+          currentQ = line.slice(2).trim();
+        } else if (line.startsWith("A:") && currentQ) {
+          flashcards.push({
+            question: currentQ,
+            answer: line.slice(2).trim(),
+            source: view.file?.path || "unknown",
+          });
+          currentQ = "";
+        }
+      }
+
+      if (flashcards.length === 0) {
+        new Notice("Could not generate flashcards");
+        return;
+      }
+
+      new FlashcardsModal(this.app, flashcards, this).open();
+    } catch (e) {
+      notice.hide();
+      new Notice(`Failed to generate flashcards: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  showOutlineModal() {
+    new OutlineModal(this.app, this).open();
+  }
+
+  async generateOutline(topic: string): Promise<string> {
+    const sources = await this.search(topic, 5);
+
+    return this.chat(
+      `Create a detailed outline for: ${topic}\n\nUse the provided context for relevant information. Format with proper markdown headings and subheadings.`,
+      sources,
+      []
+    );
+  }
+
+  // ============================================================================
+  // CHAT COMMANDS
+  // ============================================================================
+
+  async chatWithNote(view: MarkdownView) {
+    if (!view.file) {
+      new Notice("No active file");
+      return;
+    }
+
+    const content = view.editor.getValue();
+
+    // Open chat view and send the note as context
+    await this.activateView();
+
+    // Get the chat view and set up with current note
+    const leaves = this.app.workspace.getLeavesOfType(SCRIBE_VIEW_TYPE);
+    if (leaves.length > 0) {
+      const chatView = leaves[0].view as ScribeChatView;
+      chatView.setNoteContext(view.file.path, content);
+    }
+  }
+
+  async saveChatHistory() {
+    const leaves = this.app.workspace.getLeavesOfType(SCRIBE_VIEW_TYPE);
+    if (leaves.length === 0) {
+      new Notice("No chat open");
+      return;
+    }
+
+    const chatView = leaves[0].view as ScribeChatView;
+    const messages = chatView.messages;
+
+    if (messages.length === 0) {
+      new Notice("No messages to save");
+      return;
+    }
+
+    const timestamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
+    const fileName = `Chat_${timestamp}.md`;
+
+    let content = `# Chat History\n\n> Saved on ${new Date().toLocaleString()}\n\n---\n\n`;
+
+    for (const msg of messages) {
+      const role = msg.role === "user" ? "**You**" : "**Scribe**";
+      content += `${role}:\n\n${msg.content}\n\n---\n\n`;
+    }
+
+    const file = await this.app.vault.create(fileName, content);
+    new Notice(`Saved to ${fileName}`);
+    this.app.workspace.getLeaf(false).openFile(file);
+  }
+
+  // ============================================================================
+  // CONTEXT MENU
+  // ============================================================================
+
+  addEditorContextMenu(menu: Menu, editor: Editor, view: MarkdownView) {
+    const selection = editor.getSelection();
+
+    menu.addSeparator();
+
+    if (selection) {
+      menu.addItem((item) =>
+        item
+          .setTitle("Scribe: Summarize")
+          .setIcon("file-text")
+          .onClick(() => this.summarizeSelection(editor))
+      );
+
+      menu.addItem((item) =>
+        item
+          .setTitle("Scribe: Expand")
+          .setIcon("maximize-2")
+          .onClick(() => this.expandSelection(editor))
+      );
+
+      menu.addItem((item) =>
+        item
+          .setTitle("Scribe: Simplify")
+          .setIcon("minimize-2")
+          .onClick(() => this.simplifySelection(editor))
+      );
+
+      menu.addItem((item) =>
+        item
+          .setTitle("Scribe: Fix Grammar")
+          .setIcon("check")
+          .onClick(() => this.fixGrammar(editor))
+      );
+    } else {
+      menu.addItem((item) =>
+        item
+          .setTitle("Scribe: Continue Writing")
+          .setIcon("edit")
+          .onClick(() => this.continueWriting(editor))
+      );
+    }
+
+    menu.addItem((item) =>
+      item
+        .setTitle("Scribe: Suggest Tags")
+        .setIcon("tag")
+        .onClick(() => {
+          if (view instanceof MarkdownView) this.suggestTags(view);
+        })
+    );
+
+    menu.addItem((item) =>
+      item
+        .setTitle("Scribe: Chat About Note")
+        .setIcon("message-square")
+        .onClick(() => {
+          if (view instanceof MarkdownView) this.chatWithNote(view);
+        })
+    );
   }
 
   async loadSettings() {
@@ -1336,6 +2021,31 @@ class ScribeChatView extends ItemView {
     }
   }
 
+  setNoteContext(path: string, content: string) {
+    // Set up chat with note context
+    this.pendingSources = [{
+      path,
+      content: content.slice(0, 5000),
+      score: 100,
+      header: "Current Note"
+    }];
+
+    // Show a message indicating we're chatting about this note
+    this.messagesEl.querySelector(".scribe-welcome")?.remove();
+
+    const contextMsg = this.messagesEl.createDiv({ cls: "scribe-context-notice" });
+    contextMsg.createEl("span", { text: `Chatting about: ${getFileName(path)}` });
+
+    const clearBtn = contextMsg.createEl("button", { text: "Clear", cls: "scribe-btn-small" });
+    clearBtn.addEventListener("click", () => {
+      this.pendingSources = [];
+      contextMsg.remove();
+    });
+
+    this.inputEl.focus();
+    this.inputEl.placeholder = `Ask about "${getFileName(path)}"...`;
+  }
+
   async onClose() {
     // Cleanup
   }
@@ -1774,5 +2484,523 @@ class ScribeSettingTab extends PluginSettingTab {
       window.clearInterval(this.progressIntervalId);
     }
     this.progressIntervalId = window.setInterval(updateProgress, 200);
+  }
+}
+
+// ============================================================================
+// SEMANTIC SEARCH VIEW
+// ============================================================================
+
+class ScribeSearchView extends ItemView {
+  plugin: ScribePlugin;
+  searchInput!: HTMLInputElement;
+  resultsEl!: HTMLElement;
+  results: SearchResult[] = [];
+
+  constructor(leaf: WorkspaceLeaf, plugin: ScribePlugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType(): string {
+    return SCRIBE_SEARCH_VIEW_TYPE;
+  }
+
+  getDisplayText(): string {
+    return "Semantic Search";
+  }
+
+  getIcon(): string {
+    return "search";
+  }
+
+  async onOpen() {
+    const container = this.contentEl;
+    container.empty();
+    container.addClass("scribe-search-container");
+
+    // Header
+    const header = container.createDiv({ cls: "scribe-search-header" });
+    header.createEl("h4", { text: "Semantic Search" });
+
+    // Search input
+    const searchRow = container.createDiv({ cls: "scribe-search-row" });
+    this.searchInput = searchRow.createEl("input", {
+      type: "text",
+      placeholder: "Search by meaning...",
+      cls: "scribe-search-input",
+    });
+
+    const searchBtn = searchRow.createEl("button", { text: "Search", cls: "scribe-send-btn" });
+
+    this.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.performSearch();
+    });
+    searchBtn.addEventListener("click", () => this.performSearch());
+
+    // Results
+    this.resultsEl = container.createDiv({ cls: "scribe-search-results" });
+    this.showEmptyState();
+  }
+
+  private showEmptyState() {
+    this.resultsEl.empty();
+    const empty = this.resultsEl.createDiv({ cls: "scribe-search-empty" });
+    empty.createEl("p", { text: "Search for notes by meaning, not just keywords." });
+    empty.createEl("p", { text: `${this.plugin.embeddings.length} chunks indexed`, cls: "scribe-stats" });
+  }
+
+  async performSearch() {
+    const query = this.searchInput.value.trim();
+    if (!query) return;
+
+    if (this.plugin.embeddings.length === 0) {
+      new Notice("Index your vault first");
+      return;
+    }
+
+    this.resultsEl.empty();
+    const searching = this.resultsEl.createDiv({ cls: "scribe-preview-searching" });
+    searching.createDiv({ cls: "scribe-searching-icon" });
+    searching.createDiv({ cls: "scribe-preview-searching-text", text: "Searching..." });
+
+    this.results = await this.plugin.search(query, 20);
+
+    this.renderResults();
+  }
+
+  private renderResults() {
+    this.resultsEl.empty();
+
+    if (this.results.length === 0) {
+      this.resultsEl.createEl("p", { text: "No results found", cls: "scribe-search-empty" });
+      return;
+    }
+
+    const header = this.resultsEl.createDiv({ cls: "scribe-search-results-header" });
+    header.createEl("span", { text: `Found ${this.results.length} results` });
+
+    for (const result of this.results) {
+      const item = this.resultsEl.createDiv({ cls: "scribe-search-result-item" });
+
+      const scoreEl = item.createDiv({ cls: "scribe-search-score" });
+      scoreEl.setText(`${result.score}%`);
+
+      const infoEl = item.createDiv({ cls: "scribe-search-info" });
+      infoEl.createEl("div", { text: getFileName(result.path), cls: "scribe-search-name" });
+
+      if (result.header) {
+        infoEl.createEl("div", { text: result.header, cls: "scribe-search-section" });
+      }
+
+      const preview = result.content.slice(0, 150).replace(/\n/g, " ") + "...";
+      infoEl.createEl("div", { text: preview, cls: "scribe-search-preview" });
+
+      item.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(result.path);
+        if (file instanceof TFile) {
+          this.app.workspace.getLeaf(false).openFile(file);
+        }
+      });
+    }
+  }
+
+  async onClose() {}
+}
+
+// ============================================================================
+// MODALS
+// ============================================================================
+
+class ScribeResultModal extends Modal {
+  content: string;
+  title: string;
+
+  constructor(app: App, content: string, title: string) {
+    super(app);
+    this.content = content;
+    this.title = title;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: this.title });
+
+    const resultEl = contentEl.createDiv({ cls: "scribe-modal-content" });
+    MarkdownRenderer.render(this.app, this.content, resultEl, "", null as unknown as Plugin);
+
+    const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
+
+    const copyBtn = actions.createEl("button", { text: "Copy", cls: "scribe-btn-small" });
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(this.content);
+      copyBtn.setText("Copied!");
+      setTimeout(() => copyBtn.setText("Copy"), 2000);
+    });
+
+    const closeBtn = actions.createEl("button", { text: "Close", cls: "scribe-btn-small" });
+    closeBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class BacklinkSuggestionsModal extends Modal {
+  connections: Connection[];
+  activeFile: TFile;
+
+  constructor(app: App, connections: Connection[], activeFile: TFile) {
+    super(app);
+    this.connections = connections;
+    this.activeFile = activeFile;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: "Suggested Backlinks" });
+    contentEl.createEl("p", { text: `Notes that might be relevant to link from "${getFileName(this.activeFile.path)}"`, cls: "scribe-modal-desc" });
+
+    const list = contentEl.createDiv({ cls: "scribe-suggestions-list" });
+
+    for (const conn of this.connections) {
+      const item = list.createDiv({ cls: "scribe-suggestion-item" });
+
+      const info = item.createDiv({ cls: "scribe-suggestion-info" });
+      info.createEl("span", { text: getFileName(conn.path), cls: "scribe-suggestion-name" });
+      info.createEl("span", { text: ` (${conn.score}% similar)`, cls: "scribe-suggestion-score" });
+
+      const addBtn = item.createEl("button", { text: "Add Link", cls: "scribe-btn-small" });
+      addBtn.addEventListener("click", async () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view) {
+          const link = `[[${getFileName(conn.path)}]]`;
+          view.editor.replaceSelection(link);
+          new Notice(`Added link to ${getFileName(conn.path)}`);
+          addBtn.setText("Added!");
+          addBtn.disabled = true;
+        }
+      });
+
+      const openBtn = item.createEl("button", { text: "Open", cls: "scribe-btn-small" });
+      openBtn.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(conn.path);
+        if (file instanceof TFile) {
+          this.app.workspace.getLeaf(false).openFile(file);
+        }
+      });
+    }
+
+    const closeBtn = contentEl.createEl("button", { text: "Close", cls: "scribe-modal-close" });
+    closeBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class DuplicatesModal extends Modal {
+  duplicates: Array<{ path1: string; path2: string; score: number }>;
+
+  constructor(app: App, duplicates: Array<{ path1: string; path2: string; score: number }>) {
+    super(app);
+    this.duplicates = duplicates;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: "Similar/Duplicate Notes" });
+    contentEl.createEl("p", { text: `Found ${this.duplicates.length} pairs of very similar notes (>85% similarity)`, cls: "scribe-modal-desc" });
+
+    const list = contentEl.createDiv({ cls: "scribe-duplicates-list" });
+
+    for (const dup of this.duplicates.slice(0, 20)) {
+      const item = list.createDiv({ cls: "scribe-duplicate-item" });
+
+      item.createEl("div", { text: `${dup.score}% similar`, cls: "scribe-duplicate-score" });
+
+      const files = item.createDiv({ cls: "scribe-duplicate-files" });
+
+      const file1 = files.createEl("span", { text: getFileName(dup.path1), cls: "scribe-duplicate-name" });
+      file1.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(dup.path1);
+        if (file instanceof TFile) this.app.workspace.getLeaf(false).openFile(file);
+      });
+
+      files.createEl("span", { text: " ↔ " });
+
+      const file2 = files.createEl("span", { text: getFileName(dup.path2), cls: "scribe-duplicate-name" });
+      file2.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(dup.path2);
+        if (file instanceof TFile) this.app.workspace.getLeaf(false).openFile(file);
+      });
+    }
+
+    const closeBtn = contentEl.createEl("button", { text: "Close", cls: "scribe-modal-close" });
+    closeBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class OrphansModal extends Modal {
+  orphans: Array<{ path: string; maxScore: number }>;
+
+  constructor(app: App, orphans: Array<{ path: string; maxScore: number }>) {
+    super(app);
+    this.orphans = orphans;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: "Orphan Notes" });
+    contentEl.createEl("p", { text: `Found ${this.orphans.length} notes with weak connections (<40% max similarity)`, cls: "scribe-modal-desc" });
+
+    const list = contentEl.createDiv({ cls: "scribe-orphans-list" });
+
+    for (const orphan of this.orphans.slice(0, 30)) {
+      const item = list.createDiv({ cls: "scribe-orphan-item" });
+
+      const name = item.createEl("span", { text: getFileName(orphan.path), cls: "scribe-orphan-name" });
+      name.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(orphan.path);
+        if (file instanceof TFile) this.app.workspace.getLeaf(false).openFile(file);
+      });
+
+      item.createEl("span", { text: ` (max ${orphan.maxScore}% similar)`, cls: "scribe-orphan-score" });
+    }
+
+    const closeBtn = contentEl.createEl("button", { text: "Close", cls: "scribe-modal-close" });
+    closeBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class GenerateNoteModal extends Modal {
+  plugin: ScribePlugin;
+
+  constructor(app: App, plugin: ScribePlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: "Generate Note from Topic" });
+
+    const form = contentEl.createDiv({ cls: "scribe-generate-form" });
+
+    form.createEl("label", { text: "Topic:" });
+    const topicInput = form.createEl("input", { type: "text", placeholder: "Enter a topic...", cls: "scribe-modal-input" });
+
+    form.createEl("label", { text: "Folder (optional):" });
+    const folderInput = form.createEl("input", { type: "text", placeholder: "e.g., Notes/Research", cls: "scribe-modal-input" });
+
+    const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
+
+    const generateBtn = actions.createEl("button", { text: "Generate", cls: "scribe-send-btn" });
+    generateBtn.addEventListener("click", async () => {
+      const topic = topicInput.value.trim();
+      if (!topic) {
+        new Notice("Enter a topic");
+        return;
+      }
+
+      this.close();
+      const file = await this.plugin.generateNoteFromTopic(topic, folderInput.value.trim() || undefined);
+      if (file) {
+        this.app.workspace.getLeaf(false).openFile(file);
+      }
+    });
+
+    const cancelBtn = actions.createEl("button", { text: "Cancel", cls: "scribe-btn-small" });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    topicInput.focus();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class FlashcardsModal extends Modal {
+  flashcards: Flashcard[];
+  plugin: ScribePlugin;
+  currentIndex = 0;
+  showingAnswer = false;
+
+  constructor(app: App, flashcards: Flashcard[], plugin: ScribePlugin) {
+    super(app);
+    this.flashcards = flashcards;
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal scribe-flashcards-modal");
+
+    contentEl.createEl("h2", { text: `Flashcards (${this.flashcards.length})` });
+
+    this.renderCard(contentEl);
+  }
+
+  renderCard(contentEl: HTMLElement) {
+    const existing = contentEl.querySelector(".scribe-flashcard-container");
+    if (existing) existing.remove();
+
+    const container = contentEl.createDiv({ cls: "scribe-flashcard-container" });
+
+    const progress = container.createDiv({ cls: "scribe-flashcard-progress" });
+    progress.setText(`${this.currentIndex + 1} / ${this.flashcards.length}`);
+
+    const card = this.flashcards[this.currentIndex];
+    const cardEl = container.createDiv({ cls: "scribe-flashcard" });
+
+    if (this.showingAnswer) {
+      cardEl.createEl("div", { text: "Answer:", cls: "scribe-flashcard-label" });
+      cardEl.createEl("div", { text: card.answer, cls: "scribe-flashcard-text" });
+    } else {
+      cardEl.createEl("div", { text: "Question:", cls: "scribe-flashcard-label" });
+      cardEl.createEl("div", { text: card.question, cls: "scribe-flashcard-text" });
+    }
+
+    const actions = container.createDiv({ cls: "scribe-flashcard-actions" });
+
+    if (!this.showingAnswer) {
+      const showBtn = actions.createEl("button", { text: "Show Answer", cls: "scribe-send-btn" });
+      showBtn.addEventListener("click", () => {
+        this.showingAnswer = true;
+        this.renderCard(contentEl);
+      });
+    } else {
+      const nextBtn = actions.createEl("button", { text: this.currentIndex < this.flashcards.length - 1 ? "Next" : "Finish", cls: "scribe-send-btn" });
+      nextBtn.addEventListener("click", () => {
+        if (this.currentIndex < this.flashcards.length - 1) {
+          this.currentIndex++;
+          this.showingAnswer = false;
+          this.renderCard(contentEl);
+        } else {
+          this.close();
+        }
+      });
+
+      if (this.currentIndex > 0) {
+        const prevBtn = actions.createEl("button", { text: "Previous", cls: "scribe-btn-small" });
+        prevBtn.addEventListener("click", () => {
+          this.currentIndex--;
+          this.showingAnswer = false;
+          this.renderCard(contentEl);
+        });
+      }
+    }
+
+    const exportBtn = actions.createEl("button", { text: "Export All", cls: "scribe-btn-small" });
+    exportBtn.addEventListener("click", () => this.exportFlashcards());
+  }
+
+  async exportFlashcards() {
+    let content = "# Flashcards\n\n";
+    for (const card of this.flashcards) {
+      content += `## Q: ${card.question}\n\n${card.answer}\n\n---\n\n`;
+    }
+
+    const fileName = `Flashcards_${new Date().toISOString().slice(0, 10)}.md`;
+    const file = await this.app.vault.create(fileName, content);
+    new Notice(`Exported to ${fileName}`);
+    this.app.workspace.getLeaf(false).openFile(file);
+    this.close();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class OutlineModal extends Modal {
+  plugin: ScribePlugin;
+
+  constructor(app: App, plugin: ScribePlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("scribe-modal");
+
+    contentEl.createEl("h2", { text: "Generate Outline" });
+
+    const form = contentEl.createDiv({ cls: "scribe-generate-form" });
+
+    form.createEl("label", { text: "Topic:" });
+    const topicInput = form.createEl("input", { type: "text", placeholder: "Enter a topic...", cls: "scribe-modal-input" });
+
+    const resultEl = contentEl.createDiv({ cls: "scribe-modal-result" });
+
+    const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
+
+    const generateBtn = actions.createEl("button", { text: "Generate", cls: "scribe-send-btn" });
+    generateBtn.addEventListener("click", async () => {
+      const topic = topicInput.value.trim();
+      if (!topic) {
+        new Notice("Enter a topic");
+        return;
+      }
+
+      generateBtn.disabled = true;
+      generateBtn.setText("Generating...");
+
+      try {
+        const outline = await this.plugin.generateOutline(topic);
+        resultEl.empty();
+        MarkdownRenderer.render(this.app, outline, resultEl, "", null as unknown as Plugin);
+
+        // Add copy button
+        const copyBtn = resultEl.createEl("button", { text: "Copy Outline", cls: "scribe-btn-small" });
+        copyBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText(outline);
+          copyBtn.setText("Copied!");
+        });
+      } catch (e) {
+        new Notice(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      generateBtn.disabled = false;
+      generateBtn.setText("Generate");
+    });
+
+    const cancelBtn = actions.createEl("button", { text: "Close", cls: "scribe-btn-small" });
+    cancelBtn.addEventListener("click", () => this.close());
+
+    topicInput.focus();
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
