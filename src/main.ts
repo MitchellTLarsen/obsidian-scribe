@@ -1050,7 +1050,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   // ============================================================================
 
   private get embeddingsCachePath(): string {
-    return `${this.app.vault.configDir}/plugins/obsidian-scribe/embeddings.json`;
+    return `${this.app.vault.configDir}/plugins/${this.manifest.id}/embeddings.json`;
   }
 
   async loadEmbeddings() {
