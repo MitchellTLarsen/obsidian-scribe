@@ -872,32 +872,18 @@ class ScribeChatView extends ItemView {
 
     this.inputEl = inputArea.createEl("textarea", {
       cls: "scribe-input",
-      placeholder: "Ask anything... (Enter to search sources, Shift+Enter for new line)",
+      placeholder: "Ask anything...",
     });
 
     this.inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (this.isPreviewMode) {
-          this.confirmAndSend();
-        } else {
-          this.searchAndPreview();
-        }
-      }
-    });
-
-    const buttonRow = inputArea.createDiv({ cls: "scribe-button-row" });
-    const searchBtn = buttonRow.createEl("button", { cls: "scribe-search-btn", text: "Search Sources" });
-    searchBtn.addEventListener("click", () => this.searchAndPreview());
-
-    const sendBtn = buttonRow.createEl("button", { cls: "scribe-send-btn", text: "Send" });
-    sendBtn.addEventListener("click", () => {
-      if (this.isPreviewMode) {
-        this.confirmAndSend();
-      } else {
         this.searchAndPreview();
       }
     });
+
+    const sendBtn = inputArea.createEl("button", { cls: "scribe-send-btn", text: "Send" });
+    sendBtn.addEventListener("click", () => this.searchAndPreview());
   }
 
   updateModelInfo() {
@@ -979,7 +965,7 @@ class ScribeChatView extends ItemView {
     this.sourcePreviewEl.empty();
 
     const header = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-header" });
-    header.createEl("h4", { text: "Sources to include:" });
+    header.createEl("h4", { text: `Sources found: ${this.pendingSources.length}` });
 
     // Cost estimate
     const costEstimate = this.estimateCost(this.pendingSources, this.pendingMessage.length);
