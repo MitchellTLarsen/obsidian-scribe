@@ -55,8 +55,30 @@ interface EmbeddingEntry {
 }
 
 // ============================================================================
-// DEFAULT SETTINGS
+// CONSTANTS
 // ============================================================================
+
+const SCRIBE_VIEW_TYPE = "scribe-chat-view";
+
+const API_URLS = {
+  openai: "https://api.openai.com/v1/chat/completions",
+  openaiEmbeddings: "https://api.openai.com/v1/embeddings",
+  anthropic: "https://api.anthropic.com/v1/messages",
+  groq: "https://api.groq.com/openai/v1/chat/completions",
+  gemini: (model: string, key: string) =>
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+} as const;
+
+const SYSTEM_PROMPT = `You are Scribe, an intelligent AI assistant with access to the user's notes vault.
+
+Your role is to:
+1. Answer questions using the provided context from the vault
+2. Help organize and expand upon existing content
+3. Generate new content that maintains consistency with existing materials
+4. Assist with writing, editing, and brainstorming
+
+Always base your responses on the context provided when available.
+Be concise and helpful.`;
 
 const DEFAULT_SETTINGS: ScribeSettings = {
   openaiApiKey: "",
@@ -79,75 +101,115 @@ const DEFAULT_SETTINGS: ScribeSettings = {
 };
 
 // ============================================================================
-// VIEW TYPE
+// HELPER FUNCTIONS
 // ============================================================================
 
-const SCRIBE_VIEW_TYPE = "scribe-chat-view";
+function buildContext(sources: Source[]): string {
+  if (sources.length === 0) return "";
+
+  let context = "## Relevant context from your vault:\n\n";
+  for (const source of sources) {
+    context += `### From: ${source.path}`;
+    if (source.header) context += ` (${source.header})`;
+    context += `\n${source.content}\n\n`;
+  }
+  return context;
+}
+
+function simulateStreaming(
+  content: string,
+  onChunk: (chunk: string) => void,
+  chunkSize = 3,
+  delayMs = 20
+): Promise<void> {
+  return new Promise((resolve) => {
+    const words = content.split(" ");
+    let i = 0;
+
+    const processChunk = () => {
+      if (i >= words.length) {
+        resolve();
+        return;
+      }
+      const chunk = words.slice(i, i + chunkSize).join(" ") + " ";
+      onChunk(chunk);
+      i += chunkSize;
+      setTimeout(processChunk, delayMs);
+    };
+
+    processChunk();
+  });
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getFileName(path: string): string {
+  return path.split("/").pop()?.replace(".md", "") || path;
+}
 
 // ============================================================================
 // MAIN PLUGIN
 // ============================================================================
 
 export default class ScribePlugin extends Plugin {
-  settings: ScribeSettings;
+  settings: ScribeSettings = DEFAULT_SETTINGS;
   embeddings: EmbeddingEntry[] = [];
-  indexing: boolean = false;
-  indexingCancelled: boolean = false;
-  indexingStatus: string = "";
-  indexingProgress: { current: number; total: number } = { current: 0, total: 0 };
+  indexing = false;
+  indexingCancelled = false;
+  indexingStatus = "";
+  indexingProgress = { current: 0, total: 0 };
 
   async onload() {
     await this.loadSettings();
 
-    // Register the chat view
     this.registerView(SCRIBE_VIEW_TYPE, (leaf) => new ScribeChatView(leaf, this));
 
-    // Add ribbon icon
-    this.addRibbonIcon("message-square", "Open Scribe AI", () => {
-      this.activateView();
-    });
+    this.addRibbonIcon("message-square", "Open Scribe AI", () => this.activateView());
 
-    // Add command to open chat
     this.addCommand({
       id: "open-scribe-chat",
       name: "Open Scribe AI Chat",
-      callback: () => {
-        this.activateView();
-      },
+      callback: () => this.activateView(),
     });
 
-    // Add command to index vault
     this.addCommand({
       id: "index-vault",
       name: "Index vault for RAG",
-      callback: () => {
-        this.indexVault();
-      },
+      callback: () => this.indexVault(),
     });
 
-    // Add settings tab
     this.addSettingTab(new ScribeSettingTab(this.app, this));
-
-    // Load embeddings from cache
     await this.loadEmbeddings();
   }
 
   async activateView() {
     const { workspace } = this.app;
-
-    let leaf: WorkspaceLeaf | null = null;
     const leaves = workspace.getLeavesOfType(SCRIBE_VIEW_TYPE);
 
     if (leaves.length > 0) {
-      leaf = leaves[0];
-    } else {
-      leaf = workspace.getRightLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({ type: SCRIBE_VIEW_TYPE, active: true });
-      }
+      workspace.revealLeaf(leaves[0]);
+      return;
     }
 
+    const leaf = workspace.getRightLeaf(false);
     if (leaf) {
+      await leaf.setViewState({ type: SCRIBE_VIEW_TYPE, active: true });
       workspace.revealLeaf(leaf);
     }
   }
@@ -159,11 +221,11 @@ export default class ScribePlugin extends Plugin {
     // Migrate old string-based settings to arrays
     if (typeof this.settings.includeFolders === "string") {
       const str = this.settings.includeFolders as unknown as string;
-      this.settings.includeFolders = str ? str.split(",").map(s => s.trim()).filter(s => s) : [];
+      this.settings.includeFolders = str ? str.split(",").map((s) => s.trim()).filter(Boolean) : [];
     }
     if (typeof this.settings.excludedFiles === "string") {
       const str = this.settings.excludedFiles as unknown as string;
-      this.settings.excludedFiles = str ? str.split(",").map(s => s.trim()).filter(s => s) : [];
+      this.settings.excludedFiles = str ? str.split(",").map((s) => s.trim()).filter(Boolean) : [];
     }
   }
 
@@ -175,25 +237,26 @@ export default class ScribePlugin extends Plugin {
   // EMBEDDING & INDEXING
   // ============================================================================
 
+  private get embeddingsCachePath(): string {
+    return `${this.app.vault.configDir}/plugins/obsidian-scribe/embeddings.json`;
+  }
+
   async loadEmbeddings() {
-    const cacheFile = this.app.vault.configDir + "/plugins/obsidian-scribe/embeddings.json";
     try {
       const adapter = this.app.vault.adapter;
-      if (await adapter.exists(cacheFile)) {
-        const data = await adapter.read(cacheFile);
+      if (await adapter.exists(this.embeddingsCachePath)) {
+        const data = await adapter.read(this.embeddingsCachePath);
         this.embeddings = JSON.parse(data);
         console.log(`Loaded ${this.embeddings.length} embeddings from cache`);
       }
-    } catch (e) {
+    } catch {
       console.log("No embedding cache found, will index on first use");
     }
   }
 
   async saveEmbeddings() {
-    const cacheFile = this.app.vault.configDir + "/plugins/obsidian-scribe/embeddings.json";
     try {
-      const adapter = this.app.vault.adapter;
-      await adapter.write(cacheFile, JSON.stringify(this.embeddings));
+      await this.app.vault.adapter.write(this.embeddingsCachePath, JSON.stringify(this.embeddings));
     } catch (e) {
       console.error("Failed to save embeddings cache:", e);
     }
@@ -217,64 +280,41 @@ export default class ScribePlugin extends Plugin {
     this.indexingStatus = "Starting...";
     this.indexingProgress = { current: 0, total: 0 };
 
-    // Create a persistent notice that we'll update
-    let currentNotice: Notice | null = new Notice("Starting indexing...", 0);
+    const currentNotice = new Notice("Starting indexing...", 0);
+    const { includeFolders, excludedFiles } = this.settings;
 
-    const files = this.app.vault.getMarkdownFiles();
-    const includeFolders = this.settings.includeFolders;
-    const excludedFiles = this.settings.excludedFiles;
-
-    const filesToIndex = files.filter((file) => {
-      // Check include folders
-      if (includeFolders.length > 0) {
-        const inIncluded = includeFolders.some((folder) =>
-          file.path.startsWith(folder)
-        );
-        if (!inIncluded) return false;
+    const filesToIndex = this.app.vault.getMarkdownFiles().filter((file) => {
+      if (includeFolders.length > 0 && !includeFolders.some((folder) => file.path.startsWith(folder))) {
+        return false;
       }
-
-      // Check excluded files
-      if (excludedFiles.includes(file.name)) return false;
-
-      return true;
+      return !excludedFiles.includes(file.name);
     });
 
     this.indexingProgress.total = filesToIndex.length;
     this.embeddings = [];
 
     for (let i = 0; i < filesToIndex.length; i++) {
-      // Check for cancellation
       if (this.indexingCancelled) {
         this.indexingStatus = `Cancelled at ${i}/${filesToIndex.length} files`;
         break;
       }
 
       const file = filesToIndex[i];
+      this.indexingProgress.current = i + 1;
+      this.indexingStatus = `${i + 1}/${filesToIndex.length} - ${file.name}`;
+      currentNotice.setMessage(`Indexing: ${this.indexingStatus}`);
+
       try {
-        // Update progress
-        this.indexingProgress.current = i + 1;
-        this.indexingStatus = `${i + 1}/${filesToIndex.length} - ${file.name}`;
-
-        // Update notice
-        if (currentNotice) {
-          currentNotice.setMessage(`Indexing: ${this.indexingStatus}`);
-        }
-
         const content = await this.app.vault.read(file);
-        const chunks = this.chunkText(content, file.path);
+        const chunks = this.chunkText(content);
 
         for (let j = 0; j < chunks.length; j++) {
-          // Check for cancellation
           if (this.indexingCancelled) break;
 
           const chunk = chunks[j];
-
-          // Update with chunk progress for files with many chunks
           if (chunks.length > 3) {
             this.indexingStatus = `${i + 1}/${filesToIndex.length} - ${file.name} (chunk ${j + 1}/${chunks.length})`;
-            if (currentNotice) {
-              currentNotice.setMessage(`Indexing: ${this.indexingStatus}`);
-            }
+            currentNotice.setMessage(`Indexing: ${this.indexingStatus}`);
           }
 
           const embedding = await this.createEmbedding(chunk.content);
@@ -282,52 +322,42 @@ export default class ScribePlugin extends Plugin {
             this.embeddings.push({
               path: file.path,
               content: chunk.content,
-              embedding: embedding,
+              embedding,
               header: chunk.header,
             });
           }
         }
       } catch (e) {
         console.error(`Failed to index ${file.path}:`, e);
-        // Continue to next file on error
       }
     }
 
-    // Save whatever we indexed (even if cancelled)
     if (this.embeddings.length > 0) {
       await this.saveEmbeddings();
     }
 
     this.indexing = false;
+    this.indexingStatus = this.indexingCancelled
+      ? `Cancelled. Saved ${this.embeddings.length} chunks.`
+      : `Done! ${this.embeddings.length} chunks from ${filesToIndex.length} files`;
 
-    if (this.indexingCancelled) {
-      this.indexingStatus = `Cancelled. Saved ${this.embeddings.length} chunks.`;
-    } else {
-      this.indexingStatus = `Done! ${this.embeddings.length} chunks from ${filesToIndex.length} files`;
-    }
-
-    // Hide progress notice and show completion
-    if (currentNotice) {
-      currentNotice.hide();
-    }
+    currentNotice.hide();
     new Notice(this.indexingStatus, 5000);
   }
 
-  chunkText(text: string, path: string): { content: string; header?: string }[] {
+  chunkText(text: string): { content: string; header?: string }[] {
     const chunks: { content: string; header?: string }[] = [];
     const lines = text.split("\n");
     let currentChunk: string[] = [];
     let currentHeader = "";
     let currentSize = 0;
     const maxSize = 1000;
+    const minSize = 50;
 
     for (const line of lines) {
       if (line.startsWith("#")) {
-        if (currentChunk.length > 0 && currentSize > 50) {
-          chunks.push({
-            content: currentChunk.join("\n"),
-            header: currentHeader,
-          });
+        if (currentChunk.length > 0 && currentSize > minSize) {
+          chunks.push({ content: currentChunk.join("\n"), header: currentHeader });
         }
         currentChunk = [line];
         currentHeader = line.replace(/^#+\s*/, "").trim();
@@ -337,155 +367,101 @@ export default class ScribePlugin extends Plugin {
         currentSize += line.length;
 
         if (currentSize > maxSize) {
-          chunks.push({
-            content: currentChunk.join("\n"),
-            header: currentHeader,
-          });
+          chunks.push({ content: currentChunk.join("\n"), header: currentHeader });
           currentChunk = [];
           currentSize = 0;
         }
       }
     }
 
-    if (currentChunk.length > 0 && currentSize > 50) {
-      chunks.push({
-        content: currentChunk.join("\n"),
-        header: currentHeader,
-      });
+    if (currentChunk.length > 0 && currentSize > minSize) {
+      chunks.push({ content: currentChunk.join("\n"), header: currentHeader });
     }
 
     return chunks;
   }
 
   async createEmbedding(text: string): Promise<number[] | null> {
-    if (this.settings.embeddingProvider === "openai" && this.settings.openaiApiKey) {
-      try {
-        // Use requestUrl like obsidian-copilot's safeFetch
-        const response = await requestUrl({
-          url: "https://api.openai.com/v1/embeddings",
-          method: "POST",
-          contentType: "application/json",
-          headers: {
-            "Authorization": `Bearer ${this.settings.openaiApiKey.trim()}`,
-          },
-          body: JSON.stringify({
-            model: this.settings.embeddingModel,
-            input: text.slice(0, 8000),
-          }),
-          throw: false, // Don't throw so we can handle errors
-        });
-
-        // Check for error status
-        if (response.status >= 400) {
-          // Try to get error details
-          let errorDetail = `Status ${response.status}`;
-          try {
-            if (response.text && !response.text.startsWith("<")) {
-              errorDetail = response.text;
-            }
-          } catch { /* ignore */ }
-          console.error(`Embedding API error: ${errorDetail}`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          return null;
-        }
-
-        // Check if response looks like HTML (error page)
-        if (response.text && response.text.trim().startsWith("<")) {
-          console.error("Embedding API returned HTML instead of JSON - possible network/proxy issue");
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          return null;
-        }
-
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Safely parse the response
-        try {
-          const data = response.json;
-          if (data && data.data && data.data[0] && data.data[0].embedding) {
-            return data.data[0].embedding;
-          }
-          console.error("Unexpected API response format:", data);
-          return null;
-        } catch (parseError) {
-          console.error("Failed to parse embedding response:", response.text?.slice(0, 200));
-          return null;
-        }
-      } catch (e) {
-        console.error("Embedding request failed:", e);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return null;
-      }
+    if (this.settings.embeddingProvider !== "openai" || !this.settings.openaiApiKey) {
+      return null;
     }
 
-    return null;
+    try {
+      const response = await requestUrl({
+        url: API_URLS.openaiEmbeddings,
+        method: "POST",
+        contentType: "application/json",
+        headers: { Authorization: `Bearer ${this.settings.openaiApiKey.trim()}` },
+        body: JSON.stringify({
+          model: this.settings.embeddingModel,
+          input: text.slice(0, 8000),
+        }),
+        throw: false,
+      });
+
+      if (response.status >= 400) {
+        console.error(`Embedding API error: Status ${response.status}`);
+        await delay(2000);
+        return null;
+      }
+
+      if (response.text?.trim().startsWith("<")) {
+        console.error("Embedding API returned HTML - possible network/proxy issue");
+        await delay(2000);
+        return null;
+      }
+
+      await delay(100); // Rate limiting
+
+      const data = response.json;
+      return data?.data?.[0]?.embedding ?? null;
+    } catch (e) {
+      console.error("Embedding request failed:", e);
+      await delay(2000);
+      return null;
+    }
   }
 
   // ============================================================================
   // SEARCH & RAG
   // ============================================================================
 
-  cosineSimilarity(a: number[], b: number[]): number {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-  }
-
-  async search(query: string, limit: number = 10): Promise<Source[]> {
-    if (this.embeddings.length === 0) {
-      return [];
-    }
+  async search(query: string, limit = 10): Promise<Source[]> {
+    if (this.embeddings.length === 0) return [];
 
     const queryEmbedding = await this.createEmbedding(query);
     if (!queryEmbedding) return [];
 
-    const scored = this.embeddings.map((entry) => ({
-      ...entry,
-      score: this.cosineSimilarity(queryEmbedding, entry.embedding),
-    }));
-
-    scored.sort((a, b) => b.score - a.score);
-
-    return scored.slice(0, limit).map((s) => ({
-      path: s.path,
-      content: s.content,
-      score: Math.round(s.score * 100),
-      header: s.header,
-    }));
+    return this.embeddings
+      .map((entry) => ({
+        ...entry,
+        score: cosineSimilarity(queryEmbedding, entry.embedding),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((s) => ({
+        path: s.path,
+        content: s.content,
+        score: Math.round(s.score * 100),
+        header: s.header,
+      }));
   }
 
   async getFullVaultContent(): Promise<Source[]> {
-    const files = this.app.vault.getMarkdownFiles();
-    const includeFolders = this.settings.includeFolders;
-
+    const { includeFolders } = this.settings;
     const sources: Source[] = [];
     let totalChars = 0;
     const maxChars = 500000;
 
-    for (const file of files) {
+    for (const file of this.app.vault.getMarkdownFiles()) {
       if (totalChars >= maxChars) break;
 
-      if (includeFolders.length > 0) {
-        const inIncluded = includeFolders.some((folder) =>
-          file.path.startsWith(folder)
-        );
-        if (!inIncluded) continue;
+      if (includeFolders.length > 0 && !includeFolders.some((folder) => file.path.startsWith(folder))) {
+        continue;
       }
 
       const content = await this.app.vault.read(file);
-      sources.push({
-        path: file.path,
-        content: content,
-        score: 100,
-      });
+      sources.push({ path: file.path, content, score: 100 });
       totalChars += content.length;
     }
 
@@ -497,120 +473,75 @@ export default class ScribePlugin extends Plugin {
   // ============================================================================
 
   getModelForProvider(provider: string): string {
-    switch (provider) {
-      case "openai": return this.settings.openaiModel;
-      case "anthropic": return this.settings.anthropicModel;
-      case "groq": return this.settings.groqModel;
-      case "gemini": return this.settings.geminiModel;
-      default: return "gpt-4o-mini";
-    }
+    const models: Record<string, string> = {
+      openai: this.settings.openaiModel,
+      anthropic: this.settings.anthropicModel,
+      groq: this.settings.groqModel,
+      gemini: this.settings.geminiModel,
+    };
+    return models[provider] || "gpt-4o-mini";
   }
 
-  async chat(
-    message: string,
-    sources: Source[],
-    history: Message[],
-    provider?: string,
-    model?: string
-  ): Promise<string> {
+  async chat(message: string, sources: Source[], history: Message[], provider?: string, model?: string): Promise<string> {
     const useProvider = provider || this.settings.defaultProvider;
     const useModel = model || this.getModelForProvider(useProvider);
+    const context = buildContext(sources);
 
-    // Build context from sources
-    let context = "";
-    if (sources.length > 0) {
-      context = "## Relevant context from your vault:\n\n";
-      for (const source of sources) {
-        context += `### From: ${source.path}`;
-        if (source.header) context += ` (${source.header})`;
-        context += `\n${source.content}\n\n`;
-      }
+    const handlers: Record<string, () => Promise<string>> = {
+      openai: () => this.chatOpenAI(message, context, history, useModel),
+      gemini: () => this.chatGemini(message, context, history, useModel),
+      anthropic: () => this.chatAnthropic(message, context, history, useModel),
+      groq: () => this.chatGroq(message, context, history, useModel),
+    };
+
+    const handler = handlers[useProvider];
+    if (!handler) {
+      throw new Error(`Provider ${useProvider} not configured. Please add API key in settings.`);
     }
 
-    const systemPrompt = `You are Scribe, an intelligent AI assistant with access to the user's notes vault.
-
-Your role is to:
-1. Answer questions using the provided context from the vault
-2. Help organize and expand upon existing content
-3. Generate new content that maintains consistency with existing materials
-4. Assist with writing, editing, and brainstorming
-
-Always base your responses on the context provided when available.
-Be concise and helpful.`;
-
-    if (useProvider === "openai" && this.settings.openaiApiKey) {
-      return this.chatOpenAI(message, context, history, systemPrompt, useModel);
-    } else if (useProvider === "gemini" && this.settings.geminiApiKey) {
-      return this.chatGemini(message, context, history, systemPrompt, useModel);
-    } else if (useProvider === "anthropic" && this.settings.anthropicApiKey) {
-      return this.chatAnthropic(message, context, history, systemPrompt, useModel);
-    } else if (useProvider === "groq" && this.settings.groqApiKey) {
-      return this.chatGroq(message, context, history, systemPrompt, useModel);
-    }
-
-    throw new Error(`Provider ${useProvider} not configured. Please add API key in settings.`);
+    return handler();
   }
 
-  async chatOpenAI(
-    message: string,
-    context: string,
-    history: Message[],
-    systemPrompt: string,
-    model: string
-  ): Promise<string> {
+  private async chatOpenAI(message: string, context: string, history: Message[], model: string): Promise<string> {
+    if (!this.settings.openaiApiKey) throw new Error("OpenAI API key not configured");
+
     const messages: Message[] = [
-      { role: "system", content: systemPrompt + "\n\n" + context },
+      { role: "system", content: `${SYSTEM_PROMPT}\n\n${context}` },
       ...history.slice(-10),
       { role: "user", content: message },
     ];
 
     const response = await requestUrl({
-      url: "https://api.openai.com/v1/chat/completions",
+      url: API_URLS.openai,
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.settings.openaiApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-      }),
+      body: JSON.stringify({ model, messages }),
     });
 
     return response.json.choices[0].message.content;
   }
 
-  async chatGemini(
-    message: string,
-    context: string,
-    history: Message[],
-    systemPrompt: string,
-    model: string
-  ): Promise<string> {
-    const fullPrompt = `${systemPrompt}\n\n${context}\n\nUser: ${message}\n\nAssistant:`;
-    const useModel = model || "gemini-2.0-flash";
+  private async chatGemini(message: string, context: string, _history: Message[], model: string): Promise<string> {
+    if (!this.settings.geminiApiKey) throw new Error("Gemini API key not configured");
+
+    const fullPrompt = `${SYSTEM_PROMPT}\n\n${context}\n\nUser: ${message}\n\nAssistant:`;
 
     const response = await requestUrl({
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${useModel}:generateContent?key=${this.settings.geminiApiKey}`,
+      url: API_URLS.gemini(model, this.settings.geminiApiKey),
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: fullPrompt }] }],
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
     });
 
     return response.json.candidates[0].content.parts[0].text;
   }
 
-  async chatAnthropic(
-    message: string,
-    context: string,
-    history: Message[],
-    systemPrompt: string,
-    model: string
-  ): Promise<string> {
+  private async chatAnthropic(message: string, context: string, history: Message[], model: string): Promise<string> {
+    if (!this.settings.anthropicApiKey) throw new Error("Anthropic API key not configured");
+
     const messages = [
       ...history.slice(-10).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
@@ -620,7 +551,7 @@ Be concise and helpful.`;
     ];
 
     const response = await requestUrl({
-      url: "https://api.anthropic.com/v1/messages",
+      url: API_URLS.anthropic,
       method: "POST",
       headers: {
         "x-api-key": this.settings.anthropicApiKey,
@@ -628,46 +559,38 @@ Be concise and helpful.`;
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: model || "claude-sonnet-4-20250514",
+        model,
         max_tokens: 4096,
-        system: systemPrompt + "\n\n" + context,
-        messages: messages,
+        system: `${SYSTEM_PROMPT}\n\n${context}`,
+        messages,
       }),
     });
 
     return response.json.content[0].text;
   }
 
-  async chatGroq(
-    message: string,
-    context: string,
-    history: Message[],
-    systemPrompt: string,
-    model: string
-  ): Promise<string> {
+  private async chatGroq(message: string, context: string, history: Message[], model: string): Promise<string> {
+    if (!this.settings.groqApiKey) throw new Error("Groq API key not configured");
+
     const messages: Message[] = [
-      { role: "system", content: systemPrompt + "\n\n" + context },
+      { role: "system", content: `${SYSTEM_PROMPT}\n\n${context}` },
       ...history.slice(-10),
       { role: "user", content: message },
     ];
 
     const response = await requestUrl({
-      url: "https://api.groq.com/openai/v1/chat/completions",
+      url: API_URLS.groq,
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.settings.groqApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: model || "llama-3.3-70b-versatile",
-        messages: messages,
-      }),
+      body: JSON.stringify({ model, messages }),
     });
 
     return response.json.choices[0].message.content;
   }
 
-  // Streaming chat method
   async chatStream(
     message: string,
     sources: Source[],
@@ -678,136 +601,33 @@ Be concise and helpful.`;
   ): Promise<void> {
     const useProvider = provider || this.settings.defaultProvider;
     const useModel = model || this.getModelForProvider(useProvider);
+    const context = buildContext(sources);
 
-    // Build context from sources
-    let context = "";
-    if (sources.length > 0) {
-      context = "## Relevant context from your vault:\n\n";
-      for (const source of sources) {
-        context += `### From: ${source.path}`;
-        if (source.header) context += ` (${source.header})`;
-        context += `\n${source.content}\n\n`;
-      }
-    }
-
-    const systemPrompt = `You are Scribe, an intelligent AI assistant with access to the user's notes vault.
-
-Your role is to:
-1. Answer questions using the provided context from the vault
-2. Help organize and expand upon existing content
-3. Generate new content that maintains consistency with existing materials
-4. Assist with writing, editing, and brainstorming
-
-Always base your responses on the context provided when available.
-Be concise and helpful.`;
-
-    // For OpenAI, use streaming
-    if (useProvider === "openai" && this.settings.openaiApiKey) {
-      await this.chatOpenAIStream(message, context, history, systemPrompt, useModel, onChunk);
-    } else if (useProvider === "anthropic" && this.settings.anthropicApiKey) {
-      await this.chatAnthropicStream(message, context, history, systemPrompt, useModel, onChunk);
-    } else {
-      // Fallback to non-streaming for other providers
-      const response = await this.chat(message, sources, history, provider, model);
-      onChunk(response);
-    }
+    // Get full response then simulate streaming (requestUrl doesn't support SSE)
+    const response = await this.getChatResponse(message, context, history, useProvider, useModel);
+    await simulateStreaming(response, onChunk);
   }
 
-  async chatOpenAIStream(
+  private async getChatResponse(
     message: string,
     context: string,
     history: Message[],
-    systemPrompt: string,
-    model: string,
-    onChunk: (chunk: string) => void
-  ): Promise<void> {
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt + "\n\n" + context },
-      ...history.slice(-10),
-      { role: "user", content: message },
-    ];
+    provider: string,
+    model: string
+  ): Promise<string> {
+    const handlers: Record<string, () => Promise<string>> = {
+      openai: () => this.chatOpenAI(message, context, history, model),
+      gemini: () => this.chatGemini(message, context, history, model),
+      anthropic: () => this.chatAnthropic(message, context, history, model),
+      groq: () => this.chatGroq(message, context, history, model),
+    };
 
-    // Use requestUrl for the initial request, then parse SSE
-    const response = await requestUrl({
-      url: "https://api.openai.com/v1/chat/completions",
-      method: "POST",
-      contentType: "application/json",
-      headers: {
-        Authorization: `Bearer ${this.settings.openaiApiKey.trim()}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-        stream: false, // requestUrl doesn't support true streaming, so we'll chunk simulate
-      }),
-      throw: false,
-    });
-
-    if (response.status >= 400) {
-      throw new Error(`API error: ${response.status}`);
+    const handler = handlers[provider];
+    if (!handler) {
+      throw new Error(`Provider ${provider} not configured`);
     }
 
-    // Since requestUrl doesn't support true streaming, deliver full response
-    const content = response.json.choices[0].message.content;
-
-    // Simulate streaming by chunking the response
-    const words = content.split(" ");
-    let accumulated = "";
-    for (let i = 0; i < words.length; i += 3) {
-      const chunk = words.slice(i, i + 3).join(" ") + " ";
-      accumulated += chunk;
-      onChunk(chunk);
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
-  }
-
-  async chatAnthropicStream(
-    message: string,
-    context: string,
-    history: Message[],
-    systemPrompt: string,
-    model: string,
-    onChunk: (chunk: string) => void
-  ): Promise<void> {
-    const messages = [
-      ...history.slice(-10).map((m) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content,
-      })),
-      { role: "user", content: message },
-    ];
-
-    const response = await requestUrl({
-      url: "https://api.anthropic.com/v1/messages",
-      method: "POST",
-      contentType: "application/json",
-      headers: {
-        "x-api-key": this.settings.anthropicApiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: model || "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        system: systemPrompt + "\n\n" + context,
-        messages: messages,
-        stream: false,
-      }),
-      throw: false,
-    });
-
-    if (response.status >= 400) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    const content = response.json.content[0].text;
-
-    // Simulate streaming
-    const words = content.split(" ");
-    for (let i = 0; i < words.length; i += 3) {
-      const chunk = words.slice(i, i + 3).join(" ") + " ";
-      onChunk(chunk);
-      await new Promise(resolve => setTimeout(resolve, 20));
-    }
+    return handler();
   }
 }
 
@@ -820,14 +640,13 @@ class ScribeChatView extends ItemView {
   messages: Message[] = [];
   sources: Source[] = [];
   pendingSources: Source[] = [];
-  pendingMessage: string = "";
-  containerEl: HTMLElement;
-  messagesEl: HTMLElement;
-  inputEl: HTMLTextAreaElement;
-  sourcePreviewEl: HTMLElement;
-  modelInfoEl: HTMLElement;
-  fullVaultMode: boolean = false;
-  isPreviewMode: boolean = false;
+  pendingMessage = "";
+  messagesEl!: HTMLElement;
+  inputEl!: HTMLTextAreaElement;
+  sourcePreviewEl!: HTMLElement;
+  modelInfoEl!: HTMLElement;
+  fullVaultMode = false;
+  isPreviewMode = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: ScribePlugin) {
     super(leaf);
@@ -847,47 +666,41 @@ class ScribeChatView extends ItemView {
   }
 
   async onOpen() {
-    this.containerEl = this.contentEl;
-    this.containerEl.empty();
-    this.containerEl.addClass("scribe-chat-container");
+    const container = this.contentEl;
+    container.empty();
+    container.addClass("scribe-chat-container");
 
-    // Header
-    const header = this.containerEl.createDiv({ cls: "scribe-header" });
+    this.createHeader(container);
+    this.modelInfoEl = container.createDiv({ cls: "scribe-model-info" });
+    this.updateModelInfo();
+
+    this.messagesEl = container.createDiv({ cls: "scribe-messages" });
+    if (this.messages.length === 0) this.showWelcome();
+
+    this.sourcePreviewEl = container.createDiv({ cls: "scribe-source-preview" });
+    this.sourcePreviewEl.style.display = "none";
+
+    this.createInputArea(container);
+  }
+
+  private createHeader(container: HTMLElement) {
+    const header = container.createDiv({ cls: "scribe-header" });
     header.createEl("h4", { text: "Scribe AI" });
 
     const controls = header.createDiv({ cls: "scribe-controls" });
 
-    // Full vault toggle
     const fullVaultLabel = controls.createEl("label", { cls: "scribe-toggle" });
-    const fullVaultCheckbox = fullVaultLabel.createEl("input", { type: "checkbox" });
-    fullVaultCheckbox.checked = this.fullVaultMode;
-    fullVaultCheckbox.addEventListener("change", () => {
-      this.fullVaultMode = fullVaultCheckbox.checked;
-    });
+    const checkbox = fullVaultLabel.createEl("input", { type: "checkbox" });
+    checkbox.checked = this.fullVaultMode;
+    checkbox.addEventListener("change", () => (this.fullVaultMode = checkbox.checked));
     fullVaultLabel.createSpan({ text: "Full vault" });
 
-    // Index button
     const indexBtn = controls.createEl("button", { cls: "scribe-btn-small", text: "Index" });
     indexBtn.addEventListener("click", () => this.plugin.indexVault());
+  }
 
-    // Model info bar
-    this.modelInfoEl = this.containerEl.createDiv({ cls: "scribe-model-info" });
-    this.updateModelInfo();
-
-    // Messages container
-    this.messagesEl = this.containerEl.createDiv({ cls: "scribe-messages" });
-
-    // Welcome message
-    if (this.messages.length === 0) {
-      this.showWelcome();
-    }
-
-    // Source preview area (hidden by default)
-    this.sourcePreviewEl = this.containerEl.createDiv({ cls: "scribe-source-preview" });
-    this.sourcePreviewEl.style.display = "none";
-
-    // Input area
-    const inputArea = this.containerEl.createDiv({ cls: "scribe-input-area" });
+  private createInputArea(container: HTMLElement) {
+    const inputArea = container.createDiv({ cls: "scribe-input-area" });
 
     this.inputEl = inputArea.createEl("textarea", {
       cls: "scribe-input",
@@ -913,26 +726,20 @@ class ScribeChatView extends ItemView {
   }
 
   estimateCost(sources: Source[], messageLength: number): string {
-    // Rough token estimation: ~4 chars per token
-    let totalChars = messageLength;
-    for (const source of sources) {
-      totalChars += source.content.length;
-    }
+    let totalChars = messageLength + sources.reduce((sum, s) => sum + s.content.length, 0);
     const estimatedTokens = Math.ceil(totalChars / 4);
 
-    // Cost per 1M tokens (rough estimates)
     const costs: Record<string, number> = {
-      "gpt-5.4-nano": 0.20,
+      "gpt-5.4-nano": 0.2,
       "gpt-5.4-mini": 0.75,
-      "gpt-5.4": 2.50,
+      "gpt-5.4": 2.5,
       "gpt-5-nano": 0.05,
       "gpt-5-mini": 0.25,
       "gpt-4o-mini": 0.15,
     };
 
-    const provider = this.plugin.settings.defaultProvider;
-    const model = this.plugin.getModelForProvider(provider);
-    const costPer1M = costs[model] || 0.50;
+    const model = this.plugin.getModelForProvider(this.plugin.settings.defaultProvider);
+    const costPer1M = costs[model] || 0.5;
     const estimatedCost = (estimatedTokens / 1000000) * costPer1M;
 
     return `~${estimatedTokens.toLocaleString()} tokens (~$${estimatedCost.toFixed(4)})`;
@@ -941,7 +748,9 @@ class ScribeChatView extends ItemView {
   showWelcome() {
     const welcome = this.messagesEl.createDiv({ cls: "scribe-welcome" });
     welcome.createEl("h3", { text: "Welcome to Scribe AI" });
-    welcome.createEl("p", { text: "Ask questions about your vault. I'll search for relevant context and provide informed answers." });
+    welcome.createEl("p", {
+      text: "Ask questions about your vault. I'll search for relevant context and provide informed answers.",
+    });
 
     if (this.plugin.embeddings.length === 0) {
       const notice = welcome.createDiv({ cls: "scribe-notice" });
@@ -964,20 +773,16 @@ class ScribeChatView extends ItemView {
     if (!message) return;
 
     this.pendingMessage = message;
-
-    // Show animated searching indicator
     this.sourcePreviewEl.style.display = "block";
     this.sourcePreviewEl.empty();
+
     const searchingEl = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-searching" });
     searchingEl.createDiv({ cls: "scribe-searching-icon" });
     searchingEl.createDiv({ cls: "scribe-preview-searching-text", text: "Searching for relevant sources..." });
 
-    // Get sources
-    if (this.fullVaultMode) {
-      this.pendingSources = await this.plugin.getFullVaultContent();
-    } else {
-      this.pendingSources = await this.plugin.search(message, this.plugin.settings.contextSize);
-    }
+    this.pendingSources = this.fullVaultMode
+      ? await this.plugin.getFullVaultContent()
+      : await this.plugin.search(message, this.plugin.settings.contextSize);
 
     this.isPreviewMode = true;
     this.renderSourcePreview();
@@ -988,53 +793,49 @@ class ScribeChatView extends ItemView {
 
     const header = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-header" });
     header.createEl("h4", { text: `Sources found: ${this.pendingSources.length}` });
+    header.createSpan({ text: this.estimateCost(this.pendingSources, this.pendingMessage.length), cls: "scribe-cost-estimate" });
 
-    // Cost estimate
-    const costEstimate = this.estimateCost(this.pendingSources, this.pendingMessage.length);
-    header.createSpan({ text: costEstimate, cls: "scribe-cost-estimate" });
-
-    // Source list
     const sourceList = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-sources" });
 
-    for (let i = 0; i < this.pendingSources.length; i++) {
-      const source = this.pendingSources[i];
-      const sourceItem = sourceList.createDiv({ cls: "scribe-preview-source-item" });
+    this.pendingSources.forEach((source, i) => {
+      const item = sourceList.createDiv({ cls: "scribe-preview-source-item" });
 
-      const sourceInfo = sourceItem.createDiv({ cls: "scribe-preview-source-info" });
-      sourceInfo.createSpan({ text: source.path.split("/").pop()?.replace(".md", "") || source.path, cls: "scribe-preview-source-name" });
+      const info = item.createDiv({ cls: "scribe-preview-source-info" });
+      info.createSpan({ text: getFileName(source.path), cls: "scribe-preview-source-name" });
       if (source.header) {
-        sourceInfo.createSpan({ text: ` > ${source.header}`, cls: "scribe-preview-source-header" });
+        info.createSpan({ text: ` > ${source.header}`, cls: "scribe-preview-source-header" });
       }
-      sourceInfo.createSpan({ text: ` (${source.score}%)`, cls: "scribe-preview-source-score" });
+      info.createSpan({ text: ` (${source.score}%)`, cls: "scribe-preview-source-score" });
 
-      const removeBtn = sourceItem.createEl("button", { text: "×", cls: "scribe-preview-remove-btn" });
+      const removeBtn = item.createEl("button", { text: "\u00d7", cls: "scribe-preview-remove-btn" });
       removeBtn.addEventListener("click", () => {
         this.pendingSources.splice(i, 1);
         this.renderSourcePreview();
       });
-    }
+    });
 
-    // Add more / manual add section
+    this.createSourcePreviewActions();
+  }
+
+  private createSourcePreviewActions() {
     const addSection = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-add-section" });
 
     const getMoreBtn = addSection.createEl("button", { text: "Get More Sources", cls: "scribe-btn-small" });
     getMoreBtn.addEventListener("click", async () => {
       const moreSources = await this.plugin.search(this.pendingMessage, this.plugin.settings.contextSize * 2);
-      // Add sources that aren't already in the list
       for (const source of moreSources) {
-        if (!this.pendingSources.find(s => s.path === source.path && s.header === source.header)) {
+        if (!this.pendingSources.find((s) => s.path === source.path && s.header === source.header)) {
           this.pendingSources.push(source);
         }
       }
       this.renderSourcePreview();
     });
 
-    // Manual file add
     const addRow = addSection.createDiv({ cls: "scribe-preview-add-row" });
     const fileInput = addRow.createEl("input", {
       type: "text",
       placeholder: "Add file manually (e.g., Notes/myfile.md)",
-      cls: "scribe-preview-add-input"
+      cls: "scribe-preview-add-input",
     });
     const addBtn = addRow.createEl("button", { text: "Add", cls: "scribe-btn-small" });
     addBtn.addEventListener("click", async () => {
@@ -1044,12 +845,7 @@ class ScribeChatView extends ItemView {
       const file = this.app.vault.getAbstractFileByPath(filePath);
       if (file instanceof TFile) {
         const content = await this.app.vault.read(file);
-        this.pendingSources.push({
-          path: filePath,
-          content: content.slice(0, 2000),
-          score: 100,
-          header: "Manual"
-        });
+        this.pendingSources.push({ path: filePath, content: content.slice(0, 2000), score: 100, header: "Manual" });
         fileInput.value = "";
         this.renderSourcePreview();
       } else {
@@ -1057,7 +853,6 @@ class ScribeChatView extends ItemView {
       }
     });
 
-    // Action buttons
     const actions = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-actions" });
 
     const cancelBtn = actions.createEl("button", { text: "Cancel", cls: "scribe-btn-small" });
@@ -1084,93 +879,95 @@ class ScribeChatView extends ItemView {
     this.pendingMessage = "";
     this.pendingSources = [];
 
-    // Remove welcome if present
-    const welcome = this.messagesEl.querySelector(".scribe-welcome");
-    if (welcome) welcome.remove();
-
-    // Add user message
+    this.messagesEl.querySelector(".scribe-welcome")?.remove();
     this.addMessage("user", message);
     this.messages.push({ role: "user", content: message });
 
-    // Create streaming response element with thinking animation
+    const responseEl = this.createThinkingMessage();
+
+    try {
+      let fullResponse = "";
+      let hasStarted = false;
+
+      await this.plugin.chatStream(message, this.sources, this.messages.slice(0, -1), (chunk: string) => {
+        if (!hasStarted) {
+          hasStarted = true;
+          responseEl.removeClass("thinking");
+        }
+        fullResponse += chunk;
+        const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement;
+        streamingEl.empty();
+        MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.plugin);
+        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      });
+
+      this.addResponseExtras(responseEl, fullResponse);
+      this.messages.push({ role: "assistant", content: fullResponse });
+    } catch (e: unknown) {
+      const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement;
+      streamingEl.setText(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private createThinkingMessage(): HTMLElement {
     const responseEl = this.messagesEl.createDiv({ cls: "scribe-message assistant thinking" });
     const avatar = responseEl.createDiv({ cls: "scribe-avatar" });
     avatar.setText("S");
+
     const contentEl = responseEl.createDiv({ cls: "scribe-content" });
     const streamingEl = contentEl.createDiv({ cls: "scribe-streaming-content" });
 
-    // Animated thinking indicator
     const loadingEl = streamingEl.createDiv({ cls: "scribe-loading" });
     loadingEl.createSpan({ cls: "scribe-thinking-spinner" });
     loadingEl.createSpan({ text: "Thinking", cls: "scribe-loading-text" });
+
     const dotsEl = loadingEl.createDiv({ cls: "scribe-loading-dots" });
-    dotsEl.createDiv({ cls: "scribe-loading-dot" });
-    dotsEl.createDiv({ cls: "scribe-loading-dot" });
-    dotsEl.createDiv({ cls: "scribe-loading-dot" });
+    for (let i = 0; i < 3; i++) {
+      dotsEl.createDiv({ cls: "scribe-loading-dot" });
+    }
 
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    return responseEl;
+  }
 
-    try {
-      // Stream the response
-      let fullResponse = "";
-      let hasStartedStreaming = false;
-      await this.plugin.chatStream(
-        message,
-        this.sources,
-        this.messages.slice(0, -1),
-        (chunk: string) => {
-          // Remove thinking state on first chunk
-          if (!hasStartedStreaming) {
-            hasStartedStreaming = true;
-            responseEl.removeClass("thinking");
-          }
-          fullResponse += chunk;
-          // Update the streaming element with markdown
-          streamingEl.empty();
-          MarkdownRenderer.render(
-            this.app,
-            fullResponse,
-            streamingEl,
-            "",
-            this.plugin
-          );
-          this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
-        }
-      );
+  private addResponseExtras(responseEl: HTMLElement, fullResponse: string) {
+    const contentEl = responseEl.querySelector(".scribe-content") as HTMLElement;
 
-      // Add sources after streaming complete
-      if (this.sources.length > 0 && this.plugin.settings.showSources) {
-        const sourcesEl = contentEl.createDiv({ cls: "scribe-sources" });
-        sourcesEl.createEl("span", { text: "Sources: ", cls: "scribe-sources-label" });
-
-        for (const source of this.sources.slice(0, 5)) {
-          const badge = sourcesEl.createEl("span", { cls: "scribe-source-badge" });
-          badge.setText(source.path.split("/").pop()?.replace(".md", "") || source.path);
-          badge.addEventListener("click", () => {
-            const file = this.app.vault.getAbstractFileByPath(source.path);
-            if (file instanceof TFile) {
-              this.app.workspace.getLeaf(false).openFile(file);
-            }
-          });
-        }
-      }
-
-      // Add action buttons
-      const actionsEl = contentEl.createDiv({ cls: "scribe-actions" });
-      const copyBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Copy" });
-      copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(fullResponse);
-        copyBtn.setText("Copied!");
-        setTimeout(() => copyBtn.setText("Copy"), 2000);
-      });
-
-      const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as TODO" });
-      todoBtn.addEventListener("click", () => this.saveAsTodo(fullResponse));
-
-      this.messages.push({ role: "assistant", content: fullResponse });
-    } catch (e: unknown) {
-      streamingEl.setText(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    if (this.sources.length > 0 && this.plugin.settings.showSources) {
+      this.createSourceBadges(contentEl, this.sources);
     }
+
+    this.createActionButtons(contentEl, fullResponse);
+  }
+
+  private createSourceBadges(container: HTMLElement, sources: Source[]) {
+    const sourcesEl = container.createDiv({ cls: "scribe-sources" });
+    sourcesEl.createEl("span", { text: "Sources: ", cls: "scribe-sources-label" });
+
+    for (const source of sources.slice(0, 5)) {
+      const badge = sourcesEl.createEl("span", { cls: "scribe-source-badge" });
+      badge.setText(getFileName(source.path));
+      badge.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(source.path);
+        if (file instanceof TFile) {
+          this.app.workspace.getLeaf(false).openFile(file);
+        }
+      });
+    }
+  }
+
+  private createActionButtons(container: HTMLElement, content: string) {
+    const actionsEl = container.createDiv({ cls: "scribe-actions" });
+
+    const copyBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Copy" });
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(content);
+      copyBtn.setText("Copied!");
+      setTimeout(() => copyBtn.setText("Copy"), 2000);
+    });
+
+    const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as TODO" });
+    todoBtn.addEventListener("click", () => this.saveAsTodo(content));
   }
 
   addMessage(role: "user" | "assistant", content: string, sources?: Source[]) {
@@ -1180,37 +977,13 @@ class ScribeChatView extends ItemView {
     avatar.setText(role === "user" ? "Y" : "S");
 
     const contentEl = messageEl.createDiv({ cls: "scribe-content" });
+    MarkdownRenderer.render(this.app, content, contentEl, "", this.plugin);
 
-    // Render markdown
-    MarkdownRenderer.render(
-      this.app,
-      content,
-      contentEl,
-      "",
-      this.plugin
-    );
-
-    // Add sources
-    if (sources && sources.length > 0 && this.plugin.settings.showSources) {
-      const sourcesEl = contentEl.createDiv({ cls: "scribe-sources" });
-      sourcesEl.createEl("span", { text: "Sources: ", cls: "scribe-sources-label" });
-
-      for (const source of sources.slice(0, 5)) {
-        const badge = sourcesEl.createEl("span", { cls: "scribe-source-badge" });
-        badge.setText(source.path.split("/").pop()?.replace(".md", "") || source.path);
-        badge.addEventListener("click", () => {
-          const file = this.app.vault.getAbstractFileByPath(source.path);
-          if (file instanceof TFile) {
-            this.app.workspace.getLeaf(false).openFile(file);
-          }
-        });
-      }
+    if (sources?.length && this.plugin.settings.showSources) {
+      this.createSourceBadges(contentEl, sources);
     }
 
-    // Add action buttons
     const actionsEl = contentEl.createDiv({ cls: "scribe-actions" });
-
-    // Copy button
     const copyBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Copy" });
     copyBtn.addEventListener("click", () => {
       navigator.clipboard.writeText(content);
@@ -1218,7 +991,6 @@ class ScribeChatView extends ItemView {
       setTimeout(() => copyBtn.setText("Copy"), 2000);
     });
 
-    // Save as TODO button
     if (role === "assistant") {
       const todoBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Save as TODO" });
       todoBtn.addEventListener("click", () => this.saveAsTodo(content));
@@ -1234,7 +1006,6 @@ class ScribeChatView extends ItemView {
     const timestamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "");
     const filename = `TODO_${timestamp}_${title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 30)}.md`;
 
-    // Convert to checkboxes
     let todoContent = `# ${title}\n\n> Generated by Scribe AI on ${new Date().toLocaleString()}\n\n---\n\n`;
 
     for (const line of content.split("\n")) {
@@ -1250,12 +1021,8 @@ class ScribeChatView extends ItemView {
       }
     }
 
-    // Check for TODOs folder
-    let savePath = filename;
     const todosFolder = this.app.vault.getAbstractFileByPath("TODOs");
-    if (todosFolder) {
-      savePath = `TODOs/${filename}`;
-    }
+    const savePath = todosFolder ? `TODOs/${filename}` : filename;
 
     try {
       const file = await this.app.vault.create(savePath, todoContent);
@@ -1285,7 +1052,6 @@ class ScribeSettingTab extends PluginSettingTab {
   }
 
   hide(): void {
-    // Clean up interval when settings tab is closed
     if (this.progressIntervalId !== null) {
       window.clearInterval(this.progressIntervalId);
       this.progressIntervalId = null;
@@ -1298,62 +1064,58 @@ class ScribeSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "Scribe AI Settings" });
 
-    // API Keys Section
+    this.addApiKeySettings(containerEl);
+    this.addProviderSettings(containerEl);
+    this.addIndexingSettings(containerEl);
+    this.addChatSettings(containerEl);
+    this.addActionSettings(containerEl);
+  }
+
+  private addApiKeySettings(containerEl: HTMLElement) {
     containerEl.createEl("h3", { text: "API Keys" });
 
     new Setting(containerEl)
       .setName("OpenAI API Key")
       .setDesc("Required for GPT models and embeddings")
       .addText((text) =>
-        text
-          .setPlaceholder("sk-...")
-          .setValue(this.plugin.settings.openaiApiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.openaiApiKey = value;
-            await this.plugin.saveSettings();
-          })
+        text.setPlaceholder("sk-...").setValue(this.plugin.settings.openaiApiKey).onChange(async (value) => {
+          this.plugin.settings.openaiApiKey = value;
+          await this.plugin.saveSettings();
+        })
       );
 
     new Setting(containerEl)
       .setName("Gemini API Key")
       .setDesc("For Google Gemini models (free tier available)")
       .addText((text) =>
-        text
-          .setPlaceholder("AI...")
-          .setValue(this.plugin.settings.geminiApiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.geminiApiKey = value;
-            await this.plugin.saveSettings();
-          })
+        text.setPlaceholder("AI...").setValue(this.plugin.settings.geminiApiKey).onChange(async (value) => {
+          this.plugin.settings.geminiApiKey = value;
+          await this.plugin.saveSettings();
+        })
       );
 
     new Setting(containerEl)
       .setName("Anthropic API Key")
       .setDesc("For Claude models")
       .addText((text) =>
-        text
-          .setPlaceholder("sk-ant-...")
-          .setValue(this.plugin.settings.anthropicApiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.anthropicApiKey = value;
-            await this.plugin.saveSettings();
-          })
+        text.setPlaceholder("sk-ant-...").setValue(this.plugin.settings.anthropicApiKey).onChange(async (value) => {
+          this.plugin.settings.anthropicApiKey = value;
+          await this.plugin.saveSettings();
+        })
       );
 
     new Setting(containerEl)
       .setName("Groq API Key")
       .setDesc("For fast Groq inference (free tier available)")
       .addText((text) =>
-        text
-          .setPlaceholder("gsk_...")
-          .setValue(this.plugin.settings.groqApiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.groqApiKey = value;
-            await this.plugin.saveSettings();
-          })
+        text.setPlaceholder("gsk_...").setValue(this.plugin.settings.groqApiKey).onChange(async (value) => {
+          this.plugin.settings.groqApiKey = value;
+          await this.plugin.saveSettings();
+        })
       );
+  }
 
-    // Provider Settings
+  private addProviderSettings(containerEl: HTMLElement) {
     containerEl.createEl("h3", { text: "Provider Settings" });
 
     new Setting(containerEl)
@@ -1432,107 +1194,14 @@ class ScribeSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+  }
 
-    // Indexing Settings
+  private addIndexingSettings(containerEl: HTMLElement) {
     containerEl.createEl("h3", { text: "Indexing Settings" });
 
-    // Include Folders with add/remove UI
-    new Setting(containerEl)
-      .setName("Include Folders")
-      .setDesc("Only index these folders (leave empty for all)");
+    this.addTagInput(containerEl, "Include Folders", "Only index these folders (leave empty for all)", "Folder name...", "includeFolders");
+    this.addTagInput(containerEl, "Excluded Files", "Don't index these files", "File name...", "excludedFiles");
 
-    const includeFoldersContainer = containerEl.createDiv({ cls: "scribe-tags-container" });
-    const includeFoldersInput = includeFoldersContainer.createEl("div", { cls: "scribe-tags-input-row" });
-    const includeFoldersText = includeFoldersInput.createEl("input", {
-      type: "text",
-      placeholder: "Folder name...",
-      cls: "scribe-tags-input"
-    });
-    const includeFoldersAddBtn = includeFoldersInput.createEl("button", { text: "Add", cls: "scribe-tags-add-btn" });
-    const includeFoldersTags = includeFoldersContainer.createDiv({ cls: "scribe-tags-list" });
-
-    const renderIncludeFolders = () => {
-      includeFoldersTags.empty();
-      for (const folder of this.plugin.settings.includeFolders) {
-        const tag = includeFoldersTags.createEl("span", { cls: "scribe-tag" });
-        tag.createSpan({ text: folder });
-        const removeBtn = tag.createEl("span", { text: " ×", cls: "scribe-tag-remove" });
-        removeBtn.addEventListener("click", async () => {
-          this.plugin.settings.includeFolders = this.plugin.settings.includeFolders.filter(f => f !== folder);
-          await this.plugin.saveSettings();
-          renderIncludeFolders();
-        });
-      }
-    };
-
-    includeFoldersAddBtn.addEventListener("click", async () => {
-      const value = includeFoldersText.value.trim();
-      if (value && !this.plugin.settings.includeFolders.includes(value)) {
-        this.plugin.settings.includeFolders.push(value);
-        await this.plugin.saveSettings();
-        includeFoldersText.value = "";
-        renderIncludeFolders();
-      }
-    });
-
-    includeFoldersText.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        includeFoldersAddBtn.click();
-      }
-    });
-
-    renderIncludeFolders();
-
-    // Excluded Files with add/remove UI
-    new Setting(containerEl)
-      .setName("Excluded Files")
-      .setDesc("Don't index these files");
-
-    const excludedFilesContainer = containerEl.createDiv({ cls: "scribe-tags-container" });
-    const excludedFilesInput = excludedFilesContainer.createEl("div", { cls: "scribe-tags-input-row" });
-    const excludedFilesText = excludedFilesInput.createEl("input", {
-      type: "text",
-      placeholder: "File name...",
-      cls: "scribe-tags-input"
-    });
-    const excludedFilesAddBtn = excludedFilesInput.createEl("button", { text: "Add", cls: "scribe-tags-add-btn" });
-    const excludedFilesTags = excludedFilesContainer.createDiv({ cls: "scribe-tags-list" });
-
-    const renderExcludedFiles = () => {
-      excludedFilesTags.empty();
-      for (const file of this.plugin.settings.excludedFiles) {
-        const tag = excludedFilesTags.createEl("span", { cls: "scribe-tag" });
-        tag.createSpan({ text: file });
-        const removeBtn = tag.createEl("span", { text: " ×", cls: "scribe-tag-remove" });
-        removeBtn.addEventListener("click", async () => {
-          this.plugin.settings.excludedFiles = this.plugin.settings.excludedFiles.filter(f => f !== file);
-          await this.plugin.saveSettings();
-          renderExcludedFiles();
-        });
-      }
-    };
-
-    excludedFilesAddBtn.addEventListener("click", async () => {
-      const value = excludedFilesText.value.trim();
-      if (value && !this.plugin.settings.excludedFiles.includes(value)) {
-        this.plugin.settings.excludedFiles.push(value);
-        await this.plugin.saveSettings();
-        excludedFilesText.value = "";
-        renderExcludedFiles();
-      }
-    });
-
-    excludedFilesText.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        excludedFilesAddBtn.click();
-      }
-    });
-
-    renderExcludedFiles();
-
-    // Context Size as number input
     new Setting(containerEl)
       .setName("Context Size")
       .setDesc("Number of chunks to include as context (1-100)")
@@ -1548,53 +1217,84 @@ class ScribeSettingTab extends PluginSettingTab {
             }
           })
       );
+  }
 
-    // Chat Settings
+  private addTagInput(containerEl: HTMLElement, name: string, desc: string, placeholder: string, settingsKey: "includeFolders" | "excludedFiles") {
+    new Setting(containerEl).setName(name).setDesc(desc);
+
+    const container = containerEl.createDiv({ cls: "scribe-tags-container" });
+    const inputRow = container.createEl("div", { cls: "scribe-tags-input-row" });
+    const input = inputRow.createEl("input", { type: "text", placeholder, cls: "scribe-tags-input" });
+    const addBtn = inputRow.createEl("button", { text: "Add", cls: "scribe-tags-add-btn" });
+    const tagsList = container.createDiv({ cls: "scribe-tags-list" });
+
+    const renderTags = () => {
+      tagsList.empty();
+      for (const item of this.plugin.settings[settingsKey]) {
+        const tag = tagsList.createEl("span", { cls: "scribe-tag" });
+        tag.createSpan({ text: item });
+        const removeBtn = tag.createEl("span", { text: " \u00d7", cls: "scribe-tag-remove" });
+        removeBtn.addEventListener("click", async () => {
+          this.plugin.settings[settingsKey] = this.plugin.settings[settingsKey].filter((f) => f !== item);
+          await this.plugin.saveSettings();
+          renderTags();
+        });
+      }
+    };
+
+    const addItem = async () => {
+      const value = input.value.trim();
+      if (value && !this.plugin.settings[settingsKey].includes(value)) {
+        this.plugin.settings[settingsKey].push(value);
+        await this.plugin.saveSettings();
+        input.value = "";
+        renderTags();
+      }
+    };
+
+    addBtn.addEventListener("click", addItem);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addItem();
+      }
+    });
+
+    renderTags();
+  }
+
+  private addChatSettings(containerEl: HTMLElement) {
     containerEl.createEl("h3", { text: "Chat Settings" });
 
     new Setting(containerEl)
       .setName("Show Sources")
       .setDesc("Display source references in chat responses")
       .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.showSources)
-          .onChange(async (value) => {
-            this.plugin.settings.showSources = value;
-            await this.plugin.saveSettings();
-          })
+        toggle.setValue(this.plugin.settings.showSources).onChange(async (value) => {
+          this.plugin.settings.showSources = value;
+          await this.plugin.saveSettings();
+        })
       );
+  }
 
-    // Index Button
+  private addActionSettings(containerEl: HTMLElement) {
     containerEl.createEl("h3", { text: "Actions" });
 
     new Setting(containerEl)
       .setName("Index Vault")
       .setDesc(`Currently indexed: ${this.plugin.embeddings.length} chunks`)
-      .addButton((btn) =>
-        btn
-          .setButtonText("Re-index Now")
-          .onClick(() => this.plugin.indexVault())
-      )
-      .addButton((btn) =>
-        btn
-          .setButtonText("Cancel")
-          .setWarning()
-          .onClick(() => this.plugin.cancelIndexing())
-      );
+      .addButton((btn) => btn.setButtonText("Re-index Now").onClick(() => this.plugin.indexVault()))
+      .addButton((btn) => btn.setButtonText("Cancel").setWarning().onClick(() => this.plugin.cancelIndexing()));
 
-    // Indexing Progress Display
     const progressContainer = containerEl.createDiv({ cls: "scribe-progress-container" });
     const progressBar = progressContainer.createDiv({ cls: "scribe-progress-bar" });
     const progressFill = progressBar.createDiv({ cls: "scribe-progress-fill" });
     const progressText = progressContainer.createDiv({ cls: "scribe-progress-text" });
 
-    // Update progress display
     const updateProgress = () => {
       if (this.plugin.indexing) {
         progressContainer.style.display = "block";
-        const percent = this.plugin.indexingProgress.total > 0
-          ? (this.plugin.indexingProgress.current / this.plugin.indexingProgress.total) * 100
-          : 0;
+        const percent = this.plugin.indexingProgress.total > 0 ? (this.plugin.indexingProgress.current / this.plugin.indexingProgress.total) * 100 : 0;
         progressFill.style.width = `${percent}%`;
         progressText.setText(this.plugin.indexingStatus);
       } else if (this.plugin.indexingStatus) {
@@ -1606,15 +1306,11 @@ class ScribeSettingTab extends PluginSettingTab {
       }
     };
 
-    // Initial update
     updateProgress();
 
-    // Clear any existing interval
     if (this.progressIntervalId !== null) {
       window.clearInterval(this.progressIntervalId);
     }
-
-    // Poll for updates while settings tab is open
     this.progressIntervalId = window.setInterval(updateProgress, 200);
   }
 }
