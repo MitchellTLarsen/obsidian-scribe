@@ -965,10 +965,12 @@ class ScribeChatView extends ItemView {
 
     this.pendingMessage = message;
 
-    // Show searching indicator
+    // Show animated searching indicator
     this.sourcePreviewEl.style.display = "block";
     this.sourcePreviewEl.empty();
-    this.sourcePreviewEl.createDiv({ cls: "scribe-preview-searching", text: "Searching for relevant sources..." });
+    const searchingEl = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-searching" });
+    searchingEl.createDiv({ cls: "scribe-searching-icon" });
+    searchingEl.createDiv({ cls: "scribe-preview-searching-text", text: "Searching for relevant sources..." });
 
     // Get sources
     if (this.fullVaultMode) {
@@ -1090,23 +1092,38 @@ class ScribeChatView extends ItemView {
     this.addMessage("user", message);
     this.messages.push({ role: "user", content: message });
 
-    // Create streaming response element
-    const responseEl = this.messagesEl.createDiv({ cls: "scribe-message assistant" });
+    // Create streaming response element with thinking animation
+    const responseEl = this.messagesEl.createDiv({ cls: "scribe-message assistant thinking" });
     const avatar = responseEl.createDiv({ cls: "scribe-avatar" });
     avatar.setText("S");
     const contentEl = responseEl.createDiv({ cls: "scribe-content" });
     const streamingEl = contentEl.createDiv({ cls: "scribe-streaming-content" });
-    streamingEl.setText("Thinking...");
+
+    // Animated thinking indicator
+    const loadingEl = streamingEl.createDiv({ cls: "scribe-loading" });
+    loadingEl.createSpan({ cls: "scribe-thinking-spinner" });
+    loadingEl.createSpan({ text: "Thinking", cls: "scribe-loading-text" });
+    const dotsEl = loadingEl.createDiv({ cls: "scribe-loading-dots" });
+    dotsEl.createDiv({ cls: "scribe-loading-dot" });
+    dotsEl.createDiv({ cls: "scribe-loading-dot" });
+    dotsEl.createDiv({ cls: "scribe-loading-dot" });
+
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
 
     try {
       // Stream the response
       let fullResponse = "";
+      let hasStartedStreaming = false;
       await this.plugin.chatStream(
         message,
         this.sources,
         this.messages.slice(0, -1),
         (chunk: string) => {
+          // Remove thinking state on first chunk
+          if (!hasStartedStreaming) {
+            hasStartedStreaming = true;
+            responseEl.removeClass("thinking");
+          }
           fullResponse += chunk;
           // Update the streaming element with markdown
           streamingEl.empty();
@@ -1244,8 +1261,8 @@ class ScribeChatView extends ItemView {
       const file = await this.app.vault.create(savePath, todoContent);
       new Notice(`Saved to ${savePath}`);
       this.app.workspace.getLeaf(false).openFile(file);
-    } catch (e) {
-      new Notice(`Failed to save: ${e.message}`);
+    } catch (e: unknown) {
+      new Notice(`Failed to save: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
