@@ -1601,14 +1601,25 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     const fullPrompt = `${SYSTEM_PROMPT}\n\n${context}\n\n${historyText}User: ${message}\n\nAssistant:`;
 
-    const response = await requestUrl({
-      url: API_URLS.gemini(model, this.settings.geminiApiKey),
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
-    });
+    try {
+      const response = await requestUrl({
+        url: API_URLS.gemini(model, this.settings.geminiApiKey),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
+      });
 
-    return response.json.candidates[0].content.parts[0].text;
+      if (!response.json.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error(`Invalid response from Gemini. Model "${model}" may not be available.`);
+      }
+
+      return response.json.candidates[0].content.parts[0].text;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("ERR_CONNECTION")) {
+        throw new Error(`Connection error with Gemini. Model "${model}" may not exist. Try gemini-2.0-flash.`);
+      }
+      throw error;
+    }
   }
 
   private async chatAnthropic(message: string, context: string, history: Message[], model: string): Promise<string> {
@@ -2525,10 +2536,8 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for Google Gemini provider")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gemini-3.0-flash", "Gemini 3.0 Flash")
-          .addOption("gemini-3.0-pro", "Gemini 3.0 Pro")
-          .addOption("gemini-2.5-flash-preview-04-17", "Gemini 2.5 Flash")
-          .addOption("gemini-2.5-pro-preview-03-25", "Gemini 2.5 Pro")
+          .addOption("gemini-2.5-flash-preview-04-17", "Gemini 2.5 Flash (latest)")
+          .addOption("gemini-2.5-pro-preview-03-25", "Gemini 2.5 Pro (latest)")
           .addOption("gemini-2.0-flash", "Gemini 2.0 Flash")
           .addOption("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite")
           .addOption("gemini-1.5-flash", "Gemini 1.5 Flash")
