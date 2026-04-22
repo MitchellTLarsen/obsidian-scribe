@@ -292,19 +292,19 @@ export default class ScribePlugin extends Plugin {
     // Core Commands
     this.addCommand({
       id: "open-scribe-chat",
-      name: "Open Scribe AI Chat",
+      name: "Open Scribe AI chat",
       callback: () => this.activateView(),
     });
 
     this.addCommand({
       id: "open-scribe-connections",
-      name: "Open Scribe Connections",
+      name: "Open Scribe connections",
       callback: () => this.activateConnectionsView(),
     });
 
     this.addCommand({
       id: "open-scribe-search",
-      name: "Open Semantic Search",
+      name: "Open semantic search",
       callback: () => this.activateSearchView(),
     });
 
@@ -549,7 +549,7 @@ export default class ScribePlugin extends Plugin {
       );
 
       notice.hide();
-      new ScribeResultModal(this.app, summary, "Note Summary").open();
+      new ScribeResultModal(this.app, summary, "Note summary").open();
     } catch (e) {
       notice.hide();
       new Notice(`Failed to summarize: ${e instanceof Error ? e.message : String(e)}`);
@@ -573,7 +573,7 @@ export default class ScribePlugin extends Plugin {
       );
 
       notice.hide();
-      new ScribeResultModal(this.app, summary, "Selection Summary").open();
+      new ScribeResultModal(this.app, summary, "Selection summary").open();
     } catch (e) {
       notice.hide();
       new Notice(`Failed to summarize: ${e instanceof Error ? e.message : String(e)}`);
@@ -715,7 +715,7 @@ export default class ScribePlugin extends Plugin {
       );
 
       notice.hide();
-      new ScribeResultModal(this.app, suggestions, "Suggested Tags").open();
+      new ScribeResultModal(this.app, suggestions, "Suggested tags").open();
     } catch (e) {
       notice.hide();
       new Notice(`Failed to suggest tags: ${e instanceof Error ? e.message : String(e)}`);
@@ -752,6 +752,11 @@ export default class ScribePlugin extends Plugin {
       new Notice("Index your vault first");
       return;
     }
+
+    this.findDuplicatesInternal();
+  }
+
+  private findDuplicatesInternal() {
 
     const notice = new Notice("Finding duplicates...", 0);
 
@@ -801,6 +806,11 @@ export default class ScribePlugin extends Plugin {
       new Notice("Index your vault first");
       return;
     }
+
+    this.findOrphansInternal();
+  }
+
+  private findOrphansInternal() {
 
     const notice = new Notice("Finding orphan notes...", 0);
 
@@ -1002,14 +1012,14 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Fix Grammar")
+          .setTitle("Scribe: Fix grammar")
           .setIcon("check")
           .onClick(() => this.fixGrammar(editor))
       );
     } else {
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Continue Writing")
+          .setTitle("Scribe: Continue writing")
           .setIcon("edit")
           .onClick(() => this.continueWriting(editor))
       );
@@ -1017,7 +1027,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     menu.addItem((item) =>
       item
-        .setTitle("Scribe: Suggest Tags")
+        .setTitle("Scribe: Suggest tags")
         .setIcon("tag")
         .onClick(() => {
           if (view instanceof MarkdownView) this.suggestTags(view);
@@ -1069,7 +1079,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   async saveEmbeddings() {
     try {
       await this.app.vault.adapter.write(this.embeddingsCachePath, JSON.stringify(this.embeddings));
-    } catch (e) {
+    } catch {
       // Failed to save cache - will retry on next save
     }
   }
@@ -1079,7 +1089,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       window.clearTimeout(this.saveDebounceTimer);
     }
     this.saveDebounceTimer = window.setTimeout(() => {
-      this.saveEmbeddings();
+      void this.saveEmbeddings();
       this.saveDebounceTimer = null;
     }, 5000); // Save after 5 seconds of inactivity
   }
@@ -1117,7 +1127,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     }
 
     this.indexDebounceTimer = window.setTimeout(() => {
-      this.processIndexQueue();
+      void this.processIndexQueue();
       this.indexDebounceTimer = null;
     }, 2000); // Wait 2 seconds after last change
   }
@@ -1126,7 +1136,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     if (this.pendingIndexQueue.size === 0) return;
     if (this.indexing) {
       // If full indexing is running, wait and try again
-      setTimeout(() => this.processIndexQueue(), 5000);
+      setTimeout(() => { void this.processIndexQueue(); }, 5000);
       return;
     }
 
@@ -1205,7 +1215,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       notice?.hide();
       // File indexed successfully
       return true;
-    } catch (e) {
+    } catch {
       notice?.hide();
       // Failed to index file
       return false;
@@ -1290,7 +1300,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
             });
           }
         }
-      } catch (e) {
+      } catch {
         // Failed to index file, continuing
       }
     }
@@ -1378,7 +1388,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
       const data = response.json;
       return data?.data?.[0]?.embedding ?? null;
-    } catch (e) {
+    } catch {
       // Embedding request failed
       await delay(2000);
       return null;
@@ -1673,6 +1683,7 @@ class ScribeChatView extends ItemView {
   modelInfoEl!: HTMLElement;
   fullVaultMode = false;
   isPreviewMode = false;
+  private component = new Component();
 
   constructor(leaf: WorkspaceLeaf, plugin: ScribePlugin) {
     super(leaf);
@@ -1691,7 +1702,8 @@ class ScribeChatView extends ItemView {
     return "message-square";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
+    this.component.load();
     const container = this.contentEl;
     container.empty();
     container.addClass("scribe-chat-container");
@@ -1706,6 +1718,7 @@ class ScribeChatView extends ItemView {
     this.sourcePreviewEl = container.createDiv({ cls: "scribe-source-preview is-hidden" });
 
     this.createInputArea(container);
+    await Promise.resolve();
   }
 
   private createHeader(container: HTMLElement) {
@@ -1721,7 +1734,7 @@ class ScribeChatView extends ItemView {
     fullVaultLabel.createSpan({ text: "Full vault" });
 
     const indexBtn = controls.createEl("button", { cls: "scribe-btn-small", text: "Index" });
-    indexBtn.addEventListener("click", () => this.plugin.indexVault());
+    indexBtn.addEventListener("click", () => { void this.plugin.indexVault(); });
   }
 
   private createInputArea(container: HTMLElement) {
@@ -1735,12 +1748,12 @@ class ScribeChatView extends ItemView {
     this.inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        this.searchAndPreview();
+        void this.searchAndPreview();
       }
     });
 
     const sendBtn = inputArea.createEl("button", { cls: "scribe-send-btn", text: "Send" });
-    sendBtn.addEventListener("click", () => this.searchAndPreview());
+    sendBtn.addEventListener("click", () => { void this.searchAndPreview(); });
   }
 
   updateModelInfo() {
@@ -1782,7 +1795,7 @@ class ScribeChatView extends ItemView {
       notice.createEl("p", { text: "Your vault hasn't been indexed yet." });
       const indexBtn = notice.createEl("button", { text: "Index now" });
       indexBtn.addEventListener("click", () => {
-        this.plugin.indexVault();
+        void this.plugin.indexVault();
         notice.remove();
       });
     } else {
@@ -1865,14 +1878,16 @@ class ScribeChatView extends ItemView {
     const addSection = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-add-section" });
 
     const getMoreBtn = addSection.createEl("button", { text: "Get more sources", cls: "scribe-btn-small" });
-    getMoreBtn.addEventListener("click", async () => {
-      const moreSources = await this.plugin.search(this.pendingMessage, this.plugin.settings.contextSize * 2);
-      for (const source of moreSources) {
-        if (!this.pendingSources.find((s) => s.path === source.path && s.header === source.header)) {
-          this.pendingSources.push(source);
+    getMoreBtn.addEventListener("click", () => {
+      void (async () => {
+        const moreSources = await this.plugin.search(this.pendingMessage, this.plugin.settings.contextSize * 2);
+        for (const source of moreSources) {
+          if (!this.pendingSources.find((s) => s.path === source.path && s.header === source.header)) {
+            this.pendingSources.push(source);
+          }
         }
-      }
-      this.renderSourcePreview();
+        this.renderSourcePreview();
+      })();
     });
 
     const addRow = addSection.createDiv({ cls: "scribe-preview-add-row" });
@@ -1882,19 +1897,21 @@ class ScribeChatView extends ItemView {
       cls: "scribe-preview-add-input",
     });
     const addBtn = addRow.createEl("button", { text: "Add", cls: "scribe-btn-small" });
-    addBtn.addEventListener("click", async () => {
-      const filePath = fileInput.value.trim();
-      if (!filePath) return;
+    addBtn.addEventListener("click", () => {
+      void (async () => {
+        const filePath = fileInput.value.trim();
+        if (!filePath) return;
 
-      const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof TFile) {
-        const content = await this.app.vault.read(file);
-        this.pendingSources.push({ path: filePath, content: content.slice(0, 2000), score: 100, header: "Manual" });
-        fileInput.value = "";
-        this.renderSourcePreview();
-      } else {
-        new Notice("File not found: " + filePath);
-      }
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) {
+          const content = await this.app.vault.read(file);
+          this.pendingSources.push({ path: filePath, content: content.slice(0, 2000), score: 100, header: "Manual" });
+          fileInput.value = "";
+          this.renderSourcePreview();
+        } else {
+          new Notice("File not found: " + filePath);
+        }
+      })();
     });
 
     // URL input row
@@ -1905,33 +1922,35 @@ class ScribeChatView extends ItemView {
       cls: "scribe-preview-add-input",
     });
     const addUrlBtn = urlRow.createEl("button", { text: "Fetch", cls: "scribe-btn-small" });
-    addUrlBtn.addEventListener("click", async () => {
-      const url = urlInput.value.trim();
-      if (!url) return;
+    addUrlBtn.addEventListener("click", () => {
+      void (async () => {
+        const url = urlInput.value.trim();
+        if (!url) return;
 
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        new Notice("Please enter a valid URL starting with http:// or https://");
-        return;
-      }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+          new Notice("Please enter a valid URL starting with http:// or https://");
+          return;
+        }
 
-      addUrlBtn.setText("Fetching...");
-      addUrlBtn.disabled = true;
+        addUrlBtn.setText("Fetching...");
+        addUrlBtn.disabled = true;
 
-      const webContent = await fetchWebPage(url);
-      if (webContent) {
-        this.pendingSources.unshift({
-          path: url,
-          content: webContent.content,
-          score: 100,
-          header: webContent.title,
-        });
-        urlInput.value = "";
-        this.renderSourcePreview();
-      } else {
-        new Notice("Failed to fetch URL: " + url);
-        addUrlBtn.setText("Fetch");
-        addUrlBtn.disabled = false;
-      }
+        const webContent = await fetchWebPage(url);
+        if (webContent) {
+          this.pendingSources.unshift({
+            path: url,
+            content: webContent.content,
+            score: 100,
+            header: webContent.title,
+          });
+          urlInput.value = "";
+          this.renderSourcePreview();
+        } else {
+          new Notice("Failed to fetch URL: " + url);
+          addUrlBtn.setText("Fetch");
+          addUrlBtn.disabled = false;
+        }
+      })();
     });
 
     const actions = this.sourcePreviewEl.createDiv({ cls: "scribe-preview-actions" });
@@ -1945,7 +1964,7 @@ class ScribeChatView extends ItemView {
     });
 
     const confirmBtn = actions.createEl("button", { text: "Send with sources", cls: "scribe-send-btn" });
-    confirmBtn.addEventListener("click", () => this.confirmAndSend());
+    confirmBtn.addEventListener("click", () => { void this.confirmAndSend(); });
   }
 
   async confirmAndSend() {
@@ -1978,7 +1997,7 @@ class ScribeChatView extends ItemView {
         fullResponse += chunk;
         const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement;
         streamingEl.empty();
-        MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this);
+        void MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.component);
         this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
       });
 
@@ -2042,7 +2061,7 @@ class ScribeChatView extends ItemView {
 
     const copyBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Copy" });
     copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(content);
+      void navigator.clipboard.writeText(content);
       copyBtn.setText("Copied!");
       setTimeout(() => copyBtn.setText("Copy"), 2000);
     });
@@ -2058,7 +2077,7 @@ class ScribeChatView extends ItemView {
     avatar.setText(role === "user" ? "Y" : "S");
 
     const contentEl = messageEl.createDiv({ cls: "scribe-content" });
-    MarkdownRenderer.render(this.app, content, contentEl, "", this);
+    void MarkdownRenderer.render(this.app, content, contentEl, "", this.component);
 
     if (sources?.length && this.plugin.settings.showSources) {
       this.createSourceBadges(contentEl, sources);
@@ -2067,7 +2086,7 @@ class ScribeChatView extends ItemView {
     const actionsEl = contentEl.createDiv({ cls: "scribe-actions" });
     const copyBtn = actionsEl.createEl("button", { cls: "scribe-action-btn", text: "Copy" });
     copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(content);
+      void navigator.clipboard.writeText(content);
       copyBtn.setText("Copied!");
       setTimeout(() => copyBtn.setText("Copy"), 2000);
     });
@@ -2113,8 +2132,9 @@ class ScribeChatView extends ItemView {
     }).open();
   }
 
-  async onClose() {
-    // Cleanup
+  async onClose(): Promise<void> {
+    this.component.unload();
+    await Promise.resolve();
   }
 }
 
@@ -2144,7 +2164,7 @@ class ScribeConnectionsView extends ItemView {
     return "git-branch";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const container = this.contentEl;
     container.empty();
     container.addClass("scribe-connections-container");
@@ -2161,6 +2181,7 @@ class ScribeConnectionsView extends ItemView {
 
     // Initial render
     this.refresh();
+    await Promise.resolve();
   }
 
   refresh() {
@@ -2201,13 +2222,13 @@ class ScribeConnectionsView extends ItemView {
     const lowRelevance = connections.filter((c) => c.score < 50);
 
     if (highRelevance.length > 0) {
-      this.renderConnectionGroup("Highly Related", highRelevance, "high");
+      this.renderConnectionGroup("Highly related", highRelevance, "high");
     }
     if (mediumRelevance.length > 0) {
       this.renderConnectionGroup("Related", mediumRelevance, "medium");
     }
     if (lowRelevance.length > 0) {
-      this.renderConnectionGroup("Somewhat Related", lowRelevance, "low");
+      this.renderConnectionGroup("Somewhat related", lowRelevance, "low");
     }
   }
 
@@ -2217,7 +2238,7 @@ class ScribeConnectionsView extends ItemView {
 
     if (showIndexBtn) {
       const indexBtn = empty.createEl("button", { text: "Index now", cls: "scribe-btn-small" });
-      indexBtn.addEventListener("click", () => this.plugin.indexVault());
+      indexBtn.addEventListener("click", () => { void this.plugin.indexVault(); });
     }
   }
 
@@ -2272,8 +2293,8 @@ class ScribeConnectionsView extends ItemView {
     }
   }
 
-  async onClose() {
-    // Cleanup
+  async onClose(): Promise<void> {
+    await Promise.resolve();
   }
 }
 
@@ -2314,42 +2335,42 @@ class ScribeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("API keys").setHeading();
 
     new Setting(containerEl)
-      .setName("OpenAI API Key")
+      .setName("OpenAI API key")
       .setDesc("Required for GPT models and embeddings")
       .addText((text) =>
-        text.setPlaceholder("sk-...").setValue(this.plugin.settings.openaiApiKey).onChange(async (value) => {
+        text.setPlaceholder("sk-...").setValue(this.plugin.settings.openaiApiKey).onChange((value) => {
           this.plugin.settings.openaiApiKey = value;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         })
       );
 
     new Setting(containerEl)
-      .setName("Gemini API Key")
+      .setName("Gemini API key")
       .setDesc("For Google Gemini models (free tier available)")
       .addText((text) =>
-        text.setPlaceholder("AI...").setValue(this.plugin.settings.geminiApiKey).onChange(async (value) => {
+        text.setPlaceholder("AI...").setValue(this.plugin.settings.geminiApiKey).onChange((value) => {
           this.plugin.settings.geminiApiKey = value;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         })
       );
 
     new Setting(containerEl)
-      .setName("Anthropic API Key")
+      .setName("Anthropic API key")
       .setDesc("For Claude models")
       .addText((text) =>
-        text.setPlaceholder("sk-ant-...").setValue(this.plugin.settings.anthropicApiKey).onChange(async (value) => {
+        text.setPlaceholder("sk-ant-...").setValue(this.plugin.settings.anthropicApiKey).onChange((value) => {
           this.plugin.settings.anthropicApiKey = value;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         })
       );
 
     new Setting(containerEl)
-      .setName("Groq API Key")
+      .setName("Groq API key")
       .setDesc("For fast Groq inference (free tier available)")
       .addText((text) =>
-        text.setPlaceholder("gsk_...").setValue(this.plugin.settings.groqApiKey).onChange(async (value) => {
+        text.setPlaceholder("gsk_...").setValue(this.plugin.settings.groqApiKey).onChange((value) => {
           this.plugin.settings.groqApiKey = value;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         })
       );
   }
@@ -2358,7 +2379,7 @@ class ScribeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Provider settings").setHeading();
 
     new Setting(containerEl)
-      .setName("Default Provider")
+      .setName("Default provider")
       .setDesc("Which AI provider to use by default")
       .addDropdown((dropdown) =>
         dropdown
@@ -2367,14 +2388,14 @@ class ScribeSettingTab extends PluginSettingTab {
           .addOption("anthropic", "Anthropic (Claude)")
           .addOption("groq", "Groq")
           .setValue(this.plugin.settings.defaultProvider)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.defaultProvider = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
-      .setName("OpenAI Model")
+      .setName("OpenAI model")
       .setDesc("Model for OpenAI provider")
       .addDropdown((dropdown) =>
         dropdown
@@ -2383,14 +2404,14 @@ class ScribeSettingTab extends PluginSettingTab {
           .addOption("gpt-4o-mini", "GPT-4o Mini ($0.15/1M)")
           .addOption("gpt-4o", "GPT-4o ($2.50/1M)")
           .setValue(this.plugin.settings.openaiModel)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.openaiModel = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
-      .setName("Anthropic Model")
+      .setName("Anthropic model")
       .setDesc("Model for Anthropic provider")
       .addDropdown((dropdown) =>
         dropdown
@@ -2398,14 +2419,14 @@ class ScribeSettingTab extends PluginSettingTab {
           .addOption("claude-sonnet-4-20250514", "Claude Sonnet 4")
           .addOption("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet")
           .setValue(this.plugin.settings.anthropicModel)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.anthropicModel = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
-      .setName("Groq Model")
+      .setName("Groq model")
       .setDesc("Model for Groq provider (very fast, free tier)")
       .addDropdown((dropdown) =>
         dropdown
@@ -2413,14 +2434,14 @@ class ScribeSettingTab extends PluginSettingTab {
           .addOption("llama-3.1-8b-instant", "Llama 3.1 8B (fastest)")
           .addOption("mixtral-8x7b-32768", "Mixtral 8x7B")
           .setValue(this.plugin.settings.groqModel)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.groqModel = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
-      .setName("Embedding Model")
+      .setName("Embedding model")
       .setDesc("Model used for indexing and semantic search")
       .addDropdown((dropdown) =>
         dropdown
@@ -2428,9 +2449,9 @@ class ScribeSettingTab extends PluginSettingTab {
           .addOption("text-embedding-3-large", "text-embedding-3-large ($0.13/1M)")
           .addOption("text-embedding-ada-002", "text-embedding-ada-002 ($0.10/1M)")
           .setValue(this.plugin.settings.embeddingModel)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.embeddingModel = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
   }
@@ -2438,21 +2459,21 @@ class ScribeSettingTab extends PluginSettingTab {
   private addIndexingSettings(containerEl: HTMLElement) {
     new Setting(containerEl).setName("Indexing settings").setHeading();
 
-    this.addTagInput(containerEl, "Include Folders", "Only index these folders (leave empty for all)", "Folder name...", "includeFolders");
-    this.addTagInput(containerEl, "Excluded Files", "Don't index these files", "File name...", "excludedFiles");
+    this.addTagInput(containerEl, "Include folders", "Only index these folders (leave empty for all)", "Folder name...", "includeFolders");
+    this.addTagInput(containerEl, "Excluded files", "Don't index these files", "File name...", "excludedFiles");
 
     new Setting(containerEl)
-      .setName("Context Size")
+      .setName("Context size")
       .setDesc("Number of chunks to include as context (1-100)")
       .addText((text) =>
         text
           .setPlaceholder("10")
           .setValue(String(this.plugin.settings.contextSize))
-          .onChange(async (value) => {
+          .onChange((value) => {
             const num = parseInt(value, 10);
             if (!isNaN(num) && num >= 1 && num <= 100) {
               this.plugin.settings.contextSize = num;
-              await this.plugin.saveSettings();
+              void this.plugin.saveSettings();
             }
           })
       );
@@ -2473,10 +2494,12 @@ class ScribeSettingTab extends PluginSettingTab {
         const tag = tagsList.createEl("span", { cls: "scribe-tag" });
         tag.createSpan({ text: item });
         const removeBtn = tag.createEl("span", { text: " \u00d7", cls: "scribe-tag-remove" });
-        removeBtn.addEventListener("click", async () => {
-          this.plugin.settings[settingsKey] = this.plugin.settings[settingsKey].filter((f) => f !== item);
-          await this.plugin.saveSettings();
-          renderTags();
+        removeBtn.addEventListener("click", () => {
+          void (async () => {
+            this.plugin.settings[settingsKey] = this.plugin.settings[settingsKey].filter((f) => f !== item);
+            await this.plugin.saveSettings();
+            renderTags();
+          })();
         });
       }
     };
@@ -2491,11 +2514,11 @@ class ScribeSettingTab extends PluginSettingTab {
       }
     };
 
-    addBtn.addEventListener("click", addItem);
+    addBtn.addEventListener("click", () => { void addItem(); });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        addItem();
+        void addItem();
       }
     });
 
@@ -2506,12 +2529,12 @@ class ScribeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Chat settings").setHeading();
 
     new Setting(containerEl)
-      .setName("Show Sources")
+      .setName("Show sources")
       .setDesc("Display source references in chat responses")
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.showSources).onChange(async (value) => {
+        toggle.setValue(this.plugin.settings.showSources).onChange((value) => {
           this.plugin.settings.showSources = value;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         })
       );
   }
@@ -2520,9 +2543,9 @@ class ScribeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Actions").setHeading();
 
     new Setting(containerEl)
-      .setName("Index Vault")
+      .setName("Index vault")
       .setDesc(`Currently indexed: ${this.plugin.embeddings.length} chunks`)
-      .addButton((btn) => btn.setButtonText("Re-index now").onClick(() => this.plugin.indexVault()))
+      .addButton((btn) => btn.setButtonText("Re-index now").onClick(() => { void this.plugin.indexVault(); }))
       .addButton((btn) => btn.setButtonText("Cancel").setWarning().onClick(() => this.plugin.cancelIndexing()));
 
     const progressContainer = containerEl.createDiv({ cls: "scribe-progress-container is-hidden" });
@@ -2581,7 +2604,7 @@ class ScribeSearchView extends ItemView {
     return "search";
   }
 
-  async onOpen() {
+  async onOpen(): Promise<void> {
     const container = this.contentEl;
     container.empty();
     container.addClass("scribe-search-container");
@@ -2601,13 +2624,14 @@ class ScribeSearchView extends ItemView {
     const searchBtn = searchRow.createEl("button", { text: "Search", cls: "scribe-send-btn" });
 
     this.searchInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") this.performSearch();
+      if (e.key === "Enter") { void this.performSearch(); }
     });
-    searchBtn.addEventListener("click", () => this.performSearch());
+    searchBtn.addEventListener("click", () => { void this.performSearch(); });
 
     // Results
     this.resultsEl = container.createDiv({ cls: "scribe-search-results" });
     this.showEmptyState();
+    await Promise.resolve();
   }
 
   private showEmptyState() {
@@ -2672,7 +2696,9 @@ class ScribeSearchView extends ItemView {
     }
   }
 
-  async onClose() {}
+  async onClose(): Promise<void> {
+    await Promise.resolve();
+  }
 }
 
 // ============================================================================
@@ -2705,7 +2731,7 @@ class ScribeResultModal extends Modal {
 
     const copyBtn = actions.createEl("button", { text: "Copy", cls: "scribe-btn-small" });
     copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(this.content);
+      void navigator.clipboard.writeText(this.content);
       copyBtn.setText("Copied!");
       setTimeout(() => copyBtn.setText("Copy"), 2000);
     });
@@ -2748,7 +2774,7 @@ class BacklinkSuggestionsModal extends Modal {
       info.createEl("span", { text: ` (${conn.score}% similar)`, cls: "scribe-suggestion-score" });
 
       const addBtn = item.createEl("button", { text: "Add link", cls: "scribe-btn-small" });
-      addBtn.addEventListener("click", async () => {
+      addBtn.addEventListener("click", () => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (view) {
           const link = `[[${getFileName(conn.path)}]]`;
@@ -2891,18 +2917,20 @@ class GenerateNoteModal extends Modal {
     const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
 
     const generateBtn = actions.createEl("button", { text: "Generate", cls: "scribe-send-btn" });
-    generateBtn.addEventListener("click", async () => {
-      const topic = topicInput.value.trim();
-      if (!topic) {
-        new Notice("Enter a topic");
-        return;
-      }
+    generateBtn.addEventListener("click", () => {
+      void (async () => {
+        const topic = topicInput.value.trim();
+        if (!topic) {
+          new Notice("Enter a topic");
+          return;
+        }
 
-      this.close();
-      const file = await this.plugin.generateNoteFromTopic(topic, folderInput.value.trim() || undefined);
-      if (file) {
-        this.app.workspace.getLeaf(false).openFile(file);
-      }
+        this.close();
+        const file = await this.plugin.generateNoteFromTopic(topic, folderInput.value.trim() || undefined);
+        if (file) {
+          await this.app.workspace.getLeaf(false).openFile(file);
+        }
+      })();
     });
 
     const cancelBtn = actions.createEl("button", { text: "Cancel", cls: "scribe-btn-small" });
@@ -2989,7 +3017,7 @@ class FlashcardsModal extends Modal {
     }
 
     const exportBtn = actions.createEl("button", { text: "Export all", cls: "scribe-btn-small" });
-    exportBtn.addEventListener("click", () => this.exportFlashcards());
+    exportBtn.addEventListener("click", () => { void this.exportFlashcards(); });
   }
 
   async exportFlashcards() {
@@ -3037,33 +3065,35 @@ class OutlineModal extends Modal {
     const actions = contentEl.createDiv({ cls: "scribe-modal-actions" });
 
     const generateBtn = actions.createEl("button", { text: "Generate", cls: "scribe-send-btn" });
-    generateBtn.addEventListener("click", async () => {
-      const topic = topicInput.value.trim();
-      if (!topic) {
-        new Notice("Enter a topic");
-        return;
-      }
+    generateBtn.addEventListener("click", () => {
+      void (async () => {
+        const topic = topicInput.value.trim();
+        if (!topic) {
+          new Notice("Enter a topic");
+          return;
+        }
 
-      generateBtn.disabled = true;
-      generateBtn.setText("Generating...");
+        generateBtn.disabled = true;
+        generateBtn.setText("Generating...");
 
-      try {
-        const outline = await this.plugin.generateOutline(topic);
-        resultEl.empty();
-        void MarkdownRenderer.render(this.app, outline, resultEl, "", this.component);
+        try {
+          const outline = await this.plugin.generateOutline(topic);
+          resultEl.empty();
+          void MarkdownRenderer.render(this.app, outline, resultEl, "", this.component);
 
-        // Add copy button
-        const copyBtn = resultEl.createEl("button", { text: "Copy outline", cls: "scribe-btn-small" });
-        copyBtn.addEventListener("click", () => {
-          navigator.clipboard.writeText(outline);
-          copyBtn.setText("Copied!");
-        });
-      } catch (e) {
-        new Notice(`Failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
+          // Add copy button
+          const copyBtn = resultEl.createEl("button", { text: "Copy outline", cls: "scribe-btn-small" });
+          copyBtn.addEventListener("click", () => {
+            void navigator.clipboard.writeText(outline);
+            copyBtn.setText("Copied!");
+          });
+        } catch (e) {
+          new Notice(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
 
-      generateBtn.disabled = false;
-      generateBtn.setText("Generate");
+        generateBtn.disabled = false;
+        generateBtn.setText("Generate");
+      })();
     });
 
     const cancelBtn = actions.createEl("button", { text: "Close", cls: "scribe-btn-small" });
