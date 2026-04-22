@@ -54,11 +54,19 @@ interface EmbeddingEntry {
   header?: string;
 }
 
+interface Connection {
+  path: string;
+  score: number;
+  matchingChunks: number;
+  bestHeader?: string;
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const SCRIBE_VIEW_TYPE = "scribe-chat-view";
+const SCRIBE_CONNECTIONS_VIEW_TYPE = "scribe-connections-view";
 
 const API_URLS = {
   openai: "https://api.openai.com/v1/chat/completions",
@@ -178,14 +186,25 @@ export default class ScribePlugin extends Plugin {
   async onload() {
     await this.loadSettings();
 
+    // Register views
     this.registerView(SCRIBE_VIEW_TYPE, (leaf) => new ScribeChatView(leaf, this));
+    this.registerView(SCRIBE_CONNECTIONS_VIEW_TYPE, (leaf) => new ScribeConnectionsView(leaf, this));
 
-    this.addRibbonIcon("message-square", "Open Scribe AI", () => this.activateView());
+    // Ribbon icons
+    this.addRibbonIcon("message-square", "Open Scribe AI Chat", () => this.activateView());
+    this.addRibbonIcon("git-branch", "Open Scribe Connections", () => this.activateConnectionsView());
 
+    // Commands
     this.addCommand({
       id: "open-scribe-chat",
       name: "Open Scribe AI Chat",
       callback: () => this.activateView(),
+    });
+
+    this.addCommand({
+      id: "open-scribe-connections",
+      name: "Open Scribe Connections",
+      callback: () => this.activateConnectionsView(),
     });
 
     this.addCommand({
@@ -196,6 +215,13 @@ export default class ScribePlugin extends Plugin {
 
     this.addSettingTab(new ScribeSettingTab(this.app, this));
     await this.loadEmbeddings();
+
+    // Update connections view when active file changes
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.updateConnectionsView();
+      })
+    );
   }
 
   async activateView() {
@@ -211,6 +237,32 @@ export default class ScribePlugin extends Plugin {
     if (leaf) {
       await leaf.setViewState({ type: SCRIBE_VIEW_TYPE, active: true });
       workspace.revealLeaf(leaf);
+    }
+  }
+
+  async activateConnectionsView() {
+    const { workspace } = this.app;
+    const leaves = workspace.getLeavesOfType(SCRIBE_CONNECTIONS_VIEW_TYPE);
+
+    if (leaves.length > 0) {
+      workspace.revealLeaf(leaves[0]);
+      return;
+    }
+
+    const leaf = workspace.getRightLeaf(false);
+    if (leaf) {
+      await leaf.setViewState({ type: SCRIBE_CONNECTIONS_VIEW_TYPE, active: true });
+      workspace.revealLeaf(leaf);
+    }
+  }
+
+  updateConnectionsView() {
+    const leaves = this.app.workspace.getLeavesOfType(SCRIBE_CONNECTIONS_VIEW_TYPE);
+    for (const leaf of leaves) {
+      const view = leaf.view as ScribeConnectionsView;
+      if (view && view.refresh) {
+        view.refresh();
+      }
     }
   }
 
@@ -466,6 +518,69 @@ export default class ScribePlugin extends Plugin {
     }
 
     return sources;
+  }
+
+  findSimilarNotes(filePath: string, limit = 20): Connection[] {
+    if (this.embeddings.length === 0) return [];
+
+    // Get all embeddings for the current file
+    const fileEmbeddings = this.embeddings.filter((e) => e.path === filePath);
+    if (fileEmbeddings.length === 0) return [];
+
+    // Calculate average embedding for the file
+    const avgEmbedding = this.averageEmbeddings(fileEmbeddings.map((e) => e.embedding));
+
+    // Find similar notes (excluding the current file)
+    const otherEmbeddings = this.embeddings.filter((e) => e.path !== filePath);
+
+    // Group by file and calculate best match
+    const fileScores = new Map<string, { scores: number[]; headers: string[] }>();
+
+    for (const entry of otherEmbeddings) {
+      const score = cosineSimilarity(avgEmbedding, entry.embedding);
+      const existing = fileScores.get(entry.path) || { scores: [], headers: [] };
+      existing.scores.push(score);
+      if (entry.header) existing.headers.push(entry.header);
+      fileScores.set(entry.path, existing);
+    }
+
+    // Convert to connections array
+    const connections: Connection[] = [];
+    for (const [path, data] of fileScores) {
+      const maxScore = Math.max(...data.scores);
+      const avgScore = data.scores.reduce((a, b) => a + b, 0) / data.scores.length;
+      // Weight towards max score but consider average
+      const combinedScore = maxScore * 0.7 + avgScore * 0.3;
+
+      connections.push({
+        path,
+        score: Math.round(combinedScore * 100),
+        matchingChunks: data.scores.filter((s) => s > 0.5).length,
+        bestHeader: data.headers[data.scores.indexOf(maxScore)],
+      });
+    }
+
+    return connections.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  private averageEmbeddings(embeddings: number[][]): number[] {
+    if (embeddings.length === 0) return [];
+    if (embeddings.length === 1) return embeddings[0];
+
+    const dim = embeddings[0].length;
+    const avg = new Array(dim).fill(0);
+
+    for (const emb of embeddings) {
+      for (let i = 0; i < dim; i++) {
+        avg[i] += emb[i];
+      }
+    }
+
+    for (let i = 0; i < dim; i++) {
+      avg[i] /= embeddings.length;
+    }
+
+    return avg;
   }
 
   // ============================================================================
@@ -1030,6 +1145,165 @@ class ScribeChatView extends ItemView {
       this.app.workspace.getLeaf(false).openFile(file);
     } catch (e: unknown) {
       new Notice(`Failed to save: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  async onClose() {
+    // Cleanup
+  }
+}
+
+// ============================================================================
+// CONNECTIONS VIEW
+// ============================================================================
+
+class ScribeConnectionsView extends ItemView {
+  plugin: ScribePlugin;
+  connectionsEl!: HTMLElement;
+  currentFile: TFile | null = null;
+
+  constructor(leaf: WorkspaceLeaf, plugin: ScribePlugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType(): string {
+    return SCRIBE_CONNECTIONS_VIEW_TYPE;
+  }
+
+  getDisplayText(): string {
+    return "Scribe Connections";
+  }
+
+  getIcon(): string {
+    return "git-branch";
+  }
+
+  async onOpen() {
+    const container = this.contentEl;
+    container.empty();
+    container.addClass("scribe-connections-container");
+
+    // Header
+    const header = container.createDiv({ cls: "scribe-connections-header" });
+    header.createEl("h4", { text: "Connections" });
+
+    const refreshBtn = header.createEl("button", { cls: "scribe-btn-small", text: "Refresh" });
+    refreshBtn.addEventListener("click", () => this.refresh());
+
+    // Connections list
+    this.connectionsEl = container.createDiv({ cls: "scribe-connections-list" });
+
+    // Initial render
+    this.refresh();
+  }
+
+  refresh() {
+    const activeFile = this.app.workspace.getActiveFile();
+    this.currentFile = activeFile;
+    this.renderConnections();
+  }
+
+  private renderConnections() {
+    this.connectionsEl.empty();
+
+    if (!this.currentFile) {
+      this.renderEmptyState("Open a note to see connections");
+      return;
+    }
+
+    if (this.plugin.embeddings.length === 0) {
+      this.renderEmptyState("Index your vault first to see connections", true);
+      return;
+    }
+
+    // Show current file info
+    const currentInfo = this.connectionsEl.createDiv({ cls: "scribe-current-file" });
+    currentInfo.createEl("span", { text: "Connections for:", cls: "scribe-current-label" });
+    currentInfo.createEl("span", { text: getFileName(this.currentFile.path), cls: "scribe-current-name" });
+
+    // Find and display connections
+    const connections = this.plugin.findSimilarNotes(this.currentFile.path, 15);
+
+    if (connections.length === 0) {
+      this.renderEmptyState("No similar notes found. Try indexing more files.");
+      return;
+    }
+
+    // Group by relevance
+    const highRelevance = connections.filter((c) => c.score >= 70);
+    const mediumRelevance = connections.filter((c) => c.score >= 50 && c.score < 70);
+    const lowRelevance = connections.filter((c) => c.score < 50);
+
+    if (highRelevance.length > 0) {
+      this.renderConnectionGroup("Highly Related", highRelevance, "high");
+    }
+    if (mediumRelevance.length > 0) {
+      this.renderConnectionGroup("Related", mediumRelevance, "medium");
+    }
+    if (lowRelevance.length > 0) {
+      this.renderConnectionGroup("Somewhat Related", lowRelevance, "low");
+    }
+  }
+
+  private renderEmptyState(message: string, showIndexBtn = false) {
+    const empty = this.connectionsEl.createDiv({ cls: "scribe-connections-empty" });
+    empty.createEl("p", { text: message });
+
+    if (showIndexBtn) {
+      const indexBtn = empty.createEl("button", { text: "Index Now", cls: "scribe-btn-small" });
+      indexBtn.addEventListener("click", () => this.plugin.indexVault());
+    }
+  }
+
+  private renderConnectionGroup(title: string, connections: Connection[], level: string) {
+    const group = this.connectionsEl.createDiv({ cls: `scribe-connection-group scribe-connection-${level}` });
+    group.createEl("h5", { text: `${title} (${connections.length})`, cls: "scribe-group-title" });
+
+    const list = group.createDiv({ cls: "scribe-connection-items" });
+
+    for (const conn of connections) {
+      const item = list.createDiv({ cls: "scribe-connection-item" });
+
+      // Score indicator
+      const scoreEl = item.createDiv({ cls: "scribe-connection-score" });
+      const scoreBar = scoreEl.createDiv({ cls: "scribe-score-bar" });
+      scoreBar.style.width = `${conn.score}%`;
+      scoreEl.createSpan({ text: `${conn.score}%`, cls: "scribe-score-text" });
+
+      // File info
+      const infoEl = item.createDiv({ cls: "scribe-connection-info" });
+      infoEl.createEl("span", { text: getFileName(conn.path), cls: "scribe-connection-name" });
+
+      if (conn.bestHeader) {
+        infoEl.createEl("span", { text: ` > ${conn.bestHeader}`, cls: "scribe-connection-header" });
+      }
+
+      if (conn.matchingChunks > 1) {
+        infoEl.createEl("span", { text: ` (${conn.matchingChunks} sections)`, cls: "scribe-connection-chunks" });
+      }
+
+      // Click to open
+      item.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(conn.path);
+        if (file instanceof TFile) {
+          this.app.workspace.getLeaf(false).openFile(file);
+        }
+      });
+
+      // Hover preview
+      item.addEventListener("mouseenter", (e) => {
+        const file = this.app.vault.getAbstractFileByPath(conn.path);
+        if (file instanceof TFile) {
+          this.app.workspace.trigger("hover-link", {
+            event: e,
+            source: SCRIBE_CONNECTIONS_VIEW_TYPE,
+            hoverParent: item,
+            targetEl: item,
+            linktext: conn.path,
+          });
+        }
+      });
     }
   }
 
