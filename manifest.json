@@ -1,6 +1,6 @@
 {
-  "id": "scribe",
-  "name": "Scribe AI",
+  "id": "archivist-ai",
+  "name": "Archivist AI",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
   "description": "AI assistant with RAG. Features: semantic search, smart connections, note summarization, continue writing, generate flashcards, find duplicates/orphans, suggest tags & backlinks.",

@@ -1,4 +1,4 @@
-# Scribe AI - Obsidian Plugin
+# Archivist AI - Obsidian Plugin
 
 A RAG-powered AI assistant for your Obsidian vault. Chat with context from your notes, find connections, generate content, and more.
 
@@ -39,7 +39,7 @@ A RAG-powered AI assistant for your Obsidian vault. Chat with context from your 
 
 ### From Community Plugins
 1. Open Settings > Community Plugins
-2. Search for "Scribe AI"
+2. Search for "Archivist AI"
 3. Install and enable
 
 ### Manual Installation
@@ -59,14 +59,14 @@ Copy `main.js`, `manifest.json`, and `styles.css` to your vault's `.obsidian/plu
 
 ## Setup
 
-1. Open Settings > Scribe AI
+1. Open Settings > Archivist AI
 2. Add at least one API key:
    - **OpenAI** - Required for embeddings and GPT models
    - **Gemini** - Free tier available
    - **Claude** - High quality responses
    - **Groq** - Fast inference, free tier
 3. Click "Index Vault" to create embeddings
-4. Open Scribe AI from the ribbon icon
+4. Open Archivist AI from the ribbon icon
 
 ## Usage
 
@@ -76,7 +76,7 @@ Access all commands via Command Palette (`Cmd/Ctrl+P`) and type "Scribe":
 
 | Command | Description |
 |---------|-------------|
-| Open Scribe AI Chat | Open the chat panel |
+| Open Archivist AI Chat | Open the chat panel |
 | Open Scribe Connections | View related notes |
 | Open Semantic Search | Search by meaning |
 | Index vault for RAG | Re-index all notes |
