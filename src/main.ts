@@ -92,8 +92,8 @@ const API_URLS = {
   openaiEmbeddings: "https://api.openai.com/v1/embeddings",
   anthropic: "https://api.anthropic.com/v1/messages",
   groq: "https://api.groq.com/openai/v1/chat/completions",
-  gemini: (model: string) =>
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+  gemini: (model: string, key: string) =>
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
 } as const;
 
 const SYSTEM_PROMPT = `You are Archivist AI, an intelligent assistant with access to the user's notes vault and web content.
@@ -1603,12 +1603,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     try {
       const response = await requestUrl({
-        url: API_URLS.gemini(model),
+        url: API_URLS.gemini(model, this.settings.geminiApiKey),
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": this.settings.geminiApiKey,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] }),
       });
 
@@ -1618,10 +1615,11 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
       return response.json.candidates[0].content.parts[0].text;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("ERR_CONNECTION")) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes("ERR_CONNECTION") || errMsg.includes("net::")) {
         throw new Error(`Connection error with Gemini. Model "${model}" may not exist. Try gemini-2.5-flash.`);
       }
-      throw error;
+      throw new Error(`Gemini error: ${errMsg}`);
     }
   }
 
