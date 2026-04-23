@@ -512,9 +512,9 @@ export default class ScribePlugin extends Plugin {
     if (this.saveDebounceTimer !== null) window.clearTimeout(this.saveDebounceTimer);
   }
 
-  async activateView() {
+  private async activateViewByType(viewType: string) {
     const { workspace } = this.app;
-    const leaves = workspace.getLeavesOfType(SCRIBE_VIEW_TYPE);
+    const leaves = workspace.getLeavesOfType(viewType);
 
     if (leaves.length > 0) {
       void workspace.revealLeaf(leaves[0]);
@@ -523,25 +523,17 @@ export default class ScribePlugin extends Plugin {
 
     const leaf = workspace.getRightLeaf(false);
     if (leaf) {
-      await leaf.setViewState({ type: SCRIBE_VIEW_TYPE, active: true });
+      await leaf.setViewState({ type: viewType, active: true });
       void workspace.revealLeaf(leaf);
     }
   }
 
+  async activateView() {
+    await this.activateViewByType(SCRIBE_VIEW_TYPE);
+  }
+
   async activateConnectionsView() {
-    const { workspace } = this.app;
-    const leaves = workspace.getLeavesOfType(SCRIBE_CONNECTIONS_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      void workspace.revealLeaf(leaves[0]);
-      return;
-    }
-
-    const leaf = workspace.getRightLeaf(false);
-    if (leaf) {
-      await leaf.setViewState({ type: SCRIBE_CONNECTIONS_VIEW_TYPE, active: true });
-      void workspace.revealLeaf(leaf);
-    }
+    await this.activateViewByType(SCRIBE_CONNECTIONS_VIEW_TYPE);
   }
 
   updateConnectionsView() {
@@ -555,19 +547,7 @@ export default class ScribePlugin extends Plugin {
   }
 
   async activateSearchView() {
-    const { workspace } = this.app;
-    const leaves = workspace.getLeavesOfType(SCRIBE_SEARCH_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      void workspace.revealLeaf(leaves[0]);
-      return;
-    }
-
-    const leaf = workspace.getRightLeaf(false);
-    if (leaf) {
-      await leaf.setViewState({ type: SCRIBE_SEARCH_VIEW_TYPE, active: true });
-      void workspace.revealLeaf(leaf);
-    }
+    await this.activateViewByType(SCRIBE_SEARCH_VIEW_TYPE);
   }
 
   // ============================================================================
@@ -1095,6 +1075,11 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
   async saveSettings() {
     await this.saveData(this.settings);
+    // Notify open chat views to refresh model info
+    for (const leaf of this.app.workspace.getLeavesOfType(SCRIBE_VIEW_TYPE)) {
+      const view = leaf.view as ScribeChatView;
+      if (view?.updateModelInfo) view.updateModelInfo();
+    }
   }
 
   // ============================================================================
@@ -1624,10 +1609,10 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     console.debug(`[Chat] Context length: ${context.length} chars`);
 
     const handlers: Record<string, () => Promise<string>> = {
-      openai: () => this.chatOpenAI(message, context, history, useModel),
+      openai: () => this.chatOpenAICompatible(message, context, history, useModel, API_URLS.openai, this.settings.openaiApiKey, "OpenAI"),
       gemini: () => this.chatGemini(message, context, history, useModel),
       anthropic: () => this.chatAnthropic(message, context, history, useModel),
-      groq: () => this.chatGroq(message, context, history, useModel),
+      groq: () => this.chatOpenAICompatible(message, context, history, useModel, API_URLS.groq, this.settings.groqApiKey, "Groq"),
     };
 
     const handler = handlers[useProvider];
@@ -1642,8 +1627,11 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     return result;
   }
 
-  private async chatOpenAI(message: string, context: string, history: Message[], model: string): Promise<string> {
-    if (!this.settings.openaiApiKey) throw new Error("OpenAI API key not configured");
+  private async chatOpenAICompatible(
+    message: string, context: string, history: Message[],
+    model: string, url: string, apiKey: string, label: string
+  ): Promise<string> {
+    if (!apiKey) throw new Error(`${label} API key not configured`);
 
     const messages: Message[] = [
       { role: "system", content: `${SYSTEM_PROMPT}\n\n${context}` },
@@ -1652,35 +1640,30 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     ];
 
     const body = JSON.stringify({ model, messages });
-    console.debug(`[OpenAI] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
-    console.debug(`[OpenAI] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
+    console.debug(`[${label}] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
 
     try {
       const response = await requestUrl({
-        url: API_URLS.openai,
+        url,
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.settings.openaiApiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body,
       });
 
-      console.debug(`[OpenAI] Response received, status: ${response.status}`);
+      console.debug(`[${label}] Response received, status: ${response.status}`);
       const content = response.json?.choices?.[0]?.message?.content;
-      if (!content) throw new Error("No response content from OpenAI");
+      if (!content) throw new Error(`No response content from ${label}`);
       return content;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error("[OpenAI] Error:", errMsg);
-      throw new Error(`OpenAI error: ${errMsg}`);
+      console.error(`[${label}] Error:`, errMsg);
+      throw new Error(`${label} error: ${errMsg}`);
     }
   }
 
   private async chatGemini(message: string, context: string, history: Message[], model: string): Promise<string> {
     if (!this.settings.geminiApiKey) throw new Error("Gemini API key not configured");
 
-    // Build conversation history for Gemini
     let historyText = "";
     for (const msg of history.slice(-10)) {
       const role = msg.role === "user" ? "User" : "Assistant";
@@ -1692,12 +1675,10 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     const body = JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] });
 
     console.debug(`[Gemini] Model: ${model}, Prompt size: ${fullPrompt.length} chars, Body size: ${body.length} bytes`);
-    console.debug(`[Gemini] URL: ${url.replace(this.settings.geminiApiKey, "API_KEY_HIDDEN")}`);
 
     try {
       const response = await requestUrl({
-        url,
-        method: "POST",
+        url, method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
       });
@@ -1714,7 +1695,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       const errMsg = error instanceof Error ? error.message : String(error);
       console.error("[Gemini] Error:", errMsg);
       if (errMsg.includes("ERR_CONNECTION") || errMsg.includes("net::")) {
-        throw new Error(`Connection error with Gemini (${model}). Check console for details. Try gemini-2.5-flash.`);
+        throw new Error(`Connection error with Gemini (${model}). Try gemini-2.5-flash.`);
       }
       throw new Error(`Gemini error: ${errMsg}`);
     }
@@ -1732,14 +1713,12 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     ];
 
     const body = JSON.stringify({
-      model,
-      max_tokens: 4096,
+      model, max_tokens: 4096,
       system: `${SYSTEM_PROMPT}\n\n${context}`,
       messages,
     });
 
     console.debug(`[Anthropic] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
-    console.debug(`[Anthropic] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
 
     try {
       const response = await requestUrl({
@@ -1764,41 +1743,6 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     }
   }
 
-  private async chatGroq(message: string, context: string, history: Message[], model: string): Promise<string> {
-    if (!this.settings.groqApiKey) throw new Error("Groq API key not configured");
-
-    const messages: Message[] = [
-      { role: "system", content: `${SYSTEM_PROMPT}\n\n${context}` },
-      ...history.slice(-10),
-      { role: "user", content: message },
-    ];
-
-    const body = JSON.stringify({ model, messages });
-    console.debug(`[Groq] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
-    console.debug(`[Groq] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
-
-    try {
-      const response = await requestUrl({
-        url: API_URLS.groq,
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.settings.groqApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body,
-      });
-
-      console.debug(`[Groq] Response received, status: ${response.status}`);
-      const content = response.json?.choices?.[0]?.message?.content;
-      if (!content) throw new Error("No response content from Groq");
-      return content;
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.error("[Groq] Error:", errMsg);
-      throw new Error(`Groq error: ${errMsg}`);
-    }
-  }
-
   async chatStream(
     message: string,
     sources: Source[],
@@ -1807,35 +1751,8 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     provider?: string,
     model?: string
   ): Promise<void> {
-    const useProvider = provider || this.settings.defaultProvider;
-    const useModel = model || this.getModelForProvider(useProvider);
-    const context = buildContext(sources);
-
-    // Get full response then simulate streaming (requestUrl doesn't support SSE)
-    const response = await this.getChatResponse(message, context, history, useProvider, useModel);
+    const response = await this.chat(message, sources, history, provider, model);
     await simulateStreaming(response, onChunk);
-  }
-
-  private async getChatResponse(
-    message: string,
-    context: string,
-    history: Message[],
-    provider: string,
-    model: string
-  ): Promise<string> {
-    const handlers: Record<string, () => Promise<string>> = {
-      openai: () => this.chatOpenAI(message, context, history, model),
-      gemini: () => this.chatGemini(message, context, history, model),
-      anthropic: () => this.chatAnthropic(message, context, history, model),
-      groq: () => this.chatGroq(message, context, history, model),
-    };
-
-    const handler = handlers[provider];
-    if (!handler) {
-      throw new Error(`Provider ${provider} not configured`);
-    }
-
-    return handler();
   }
 }
 
@@ -2239,6 +2156,16 @@ class ScribeChatView extends ItemView {
     try {
       let fullResponse = "";
       let hasStarted = false;
+      let renderPending = false;
+
+      const renderMarkdown = () => {
+        renderPending = false;
+        const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement | null;
+        if (!streamingEl) return;
+        streamingEl.empty();
+        void MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.component);
+        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      };
 
       await this.plugin.chatStream(message, this.sources, this.messages.slice(0, -1), (chunk: string) => {
         if (!hasStarted) {
@@ -2246,12 +2173,14 @@ class ScribeChatView extends ItemView {
           responseEl.removeClass("thinking");
         }
         fullResponse += chunk;
-        const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement | null;
-        if (!streamingEl) return;
-        streamingEl.empty();
-        void MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.component);
-        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+        if (!renderPending) {
+          renderPending = true;
+          requestAnimationFrame(renderMarkdown);
+        }
       });
+
+      // Final render to ensure complete content is shown
+      renderMarkdown();
 
       this.addResponseExtras(responseEl, fullResponse);
       this.messages.push({ role: "assistant", content: fullResponse });
