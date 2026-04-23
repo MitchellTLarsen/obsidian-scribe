@@ -178,6 +178,8 @@ function simulateStreaming(
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -188,7 +190,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
     normB += b[i] * b[i];
   }
 
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dotProduct / denom;
 }
 
 function delay(ms: number): Promise<void> {
@@ -304,7 +307,8 @@ export default class ScribePlugin extends Plugin {
   private pendingIndexQueue: Set<string> = new Set();
   private indexDebounceTimer: number | null = null;
   private saveDebounceTimer: number | null = null;
-  private startupComplete = false; // Ignore file events during startup
+  private startupTimerId: number | null = null;
+  private startupComplete = false;
 
   async onload() {
     console.debug("[Archivist AI] Loading plugin...");
@@ -496,10 +500,16 @@ export default class ScribePlugin extends Plugin {
     );
 
     // Mark startup complete after a delay to ignore initial file events
-    window.setTimeout(() => {
+    this.startupTimerId = window.setTimeout(() => {
       this.startupComplete = true;
-      // Auto-indexing now enabled
-    }, 10000); // 10 second delay after plugin load
+      this.startupTimerId = null;
+    }, 10000);
+  }
+
+  onunload() {
+    if (this.startupTimerId !== null) window.clearTimeout(this.startupTimerId);
+    if (this.indexDebounceTimer !== null) window.clearTimeout(this.indexDebounceTimer);
+    if (this.saveDebounceTimer !== null) window.clearTimeout(this.saveDebounceTimer);
   }
 
   async activateView() {
@@ -1002,7 +1012,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     let content = `# Chat History\n\n> Saved on ${new Date().toLocaleString()}\n\n---\n\n`;
 
     for (const msg of messages) {
-      const role = msg.role === "user" ? "**You**" : "**Scribe**";
+      const role = msg.role === "user" ? "**You**" : "**Archivist**";
       content += `${role}:\n\n${msg.content}\n\n---\n\n`;
     }
 
@@ -1023,35 +1033,35 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     if (selection) {
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: summarize")
+          .setTitle("Summarize")
           .setIcon("file-text")
           .onClick(() => { void this.summarizeSelection(editor); })
       );
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: expand")
+          .setTitle("Expand")
           .setIcon("maximize-2")
           .onClick(() => { void this.expandSelection(editor); })
       );
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: simplify")
+          .setTitle("Simplify")
           .setIcon("minimize-2")
           .onClick(() => { void this.simplifySelection(editor); })
       );
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: fix grammar")
+          .setTitle("Fix grammar")
           .setIcon("check")
           .onClick(() => { void this.fixGrammar(editor); })
       );
     } else {
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: continue writing")
+          .setTitle("Continue writing")
           .setIcon("edit")
           .onClick(() => { void this.continueWriting(editor); })
       );
@@ -1059,7 +1069,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     menu.addItem((item) =>
       item
-        .setTitle("Scribe: suggest tags")
+        .setTitle("Suggest tags")
         .setIcon("tag")
         .onClick(() => {
           if (view instanceof MarkdownView) void this.suggestTags(view);
@@ -1154,7 +1164,12 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
   queueFileForIndexing(filePath: string) {
     if (!this.shouldIndexFile(filePath)) return;
-    if (!this.settings.openaiApiKey) return; // Need API key for embeddings
+    // Need appropriate API key for embeddings
+    if (this.settings.embeddingProvider === "gemini") {
+      if (!this.settings.geminiApiKey) return;
+    } else {
+      if (!this.settings.openaiApiKey) return;
+    }
 
     this.pendingIndexQueue.add(filePath);
 
@@ -1173,7 +1188,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     if (this.pendingIndexQueue.size === 0) return;
     if (this.indexing) {
       // If full indexing is running, wait and try again
-      setTimeout(() => { void this.processIndexQueue(); }, 5000);
+      window.setTimeout(() => { void this.processIndexQueue(); }, 5000);
       return;
     }
 
@@ -1652,7 +1667,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       });
 
       console.debug(`[OpenAI] Response received, status: ${response.status}`);
-      return response.json.choices[0].message.content;
+      const content = response.json?.choices?.[0]?.message?.content;
+      if (!content) throw new Error("No response content from OpenAI");
+      return content;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       console.error("[OpenAI] Error:", errMsg);
@@ -1737,7 +1754,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       });
 
       console.debug(`[Anthropic] Response received, status: ${response.status}`);
-      return response.json.content[0].text;
+      const text = response.json?.content?.[0]?.text;
+      if (!text) throw new Error("No response content from Anthropic");
+      return text;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       console.error("[Anthropic] Error:", errMsg);
@@ -1770,7 +1789,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       });
 
       console.debug(`[Groq] Response received, status: ${response.status}`);
-      return response.json.choices[0].message.content;
+      const content = response.json?.choices?.[0]?.message?.content;
+      if (!content) throw new Error("No response content from Groq");
+      return content;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       console.error("[Groq] Error:", errMsg);
@@ -1846,7 +1867,7 @@ class ScribeChatView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Scribe AI";
+    return "Chat";
   }
 
   getIcon(): string {
@@ -1932,7 +1953,7 @@ class ScribeChatView extends ItemView {
   }
 
   estimateCost(sources: Source[], messageLength: number): string {
-    let totalChars = messageLength + sources.reduce((sum, s) => sum + s.content.length, 0);
+    const totalChars = messageLength + sources.reduce((sum, s) => sum + s.content.length, 0);
     const estimatedTokens = Math.ceil(totalChars / 4);
 
     const costs: Record<string, number> = {
@@ -2225,7 +2246,8 @@ class ScribeChatView extends ItemView {
           responseEl.removeClass("thinking");
         }
         fullResponse += chunk;
-        const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement;
+        const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement | null;
+        if (!streamingEl) return;
         streamingEl.empty();
         void MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.component);
         this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
@@ -2234,15 +2256,15 @@ class ScribeChatView extends ItemView {
       this.addResponseExtras(responseEl, fullResponse);
       this.messages.push({ role: "assistant", content: fullResponse });
     } catch (e: unknown) {
-      const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement;
-      streamingEl.setText(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement | null;
+      if (streamingEl) streamingEl.setText(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   private createThinkingMessage(): HTMLElement {
     const responseEl = this.messagesEl.createDiv({ cls: "scribe-message assistant thinking" });
     const avatar = responseEl.createDiv({ cls: "scribe-avatar" });
-    avatar.setText("S");
+    avatar.setText("A");
 
     const contentEl = responseEl.createDiv({ cls: "scribe-content" });
     const streamingEl = contentEl.createDiv({ cls: "scribe-streaming-content" });
@@ -2304,7 +2326,7 @@ class ScribeChatView extends ItemView {
     const messageEl = this.messagesEl.createDiv({ cls: `scribe-message ${role}` });
 
     const avatar = messageEl.createDiv({ cls: "scribe-avatar" });
-    avatar.setText(role === "user" ? "Y" : "S");
+    avatar.setText(role === "user" ? "Y" : "A");
 
     const contentEl = messageEl.createDiv({ cls: "scribe-content" });
     void MarkdownRenderer.render(this.app, content, contentEl, "", this.component);

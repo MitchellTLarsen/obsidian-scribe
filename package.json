@@ -1,7 +1,7 @@
 {
-  "name": "obsidian-scribe",
+  "name": "archivist-ai",
   "version": "1.0.0",
-  "description": "RAG-powered AI assistant for your Obsidian vault",
+  "description": "AI assistant with RAG for your Obsidian vault",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -21,7 +21,7 @@
     "@types/node": "^20.11.0",
     "builtin-modules": "^3.3.0",
     "esbuild": "^0.20.0",
-    "obsidian": "latest",
+    "obsidian": "^1.7.0",
     "tslib": "^2.8.1",
     "typescript": "^5.3.0"
   },

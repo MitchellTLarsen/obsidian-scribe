@@ -6,6 +6,5 @@
   "description": "AI assistant with RAG. Features: semantic search, smart connections, note summarization, continue writing, generate flashcards, find duplicates/orphans, suggest tags & backlinks.",
   "author": "Mitchell Larsen",
   "authorUrl": "https://github.com/MitchellTLarsen",
-  "fundingUrl": "",
   "isDesktopOnly": false
 }

@@ -83,9 +83,9 @@
   border-color: var(--interactive-accent);
 }
 
-.scribe-provider-select:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
+.scribe-provider-select:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
 }
 
 /* Messages */
@@ -349,10 +349,6 @@
 }
 
 /* Thinking State */
-.scribe-message.thinking .scribe-avatar {
-  animation: scribe-pulse 1.5s ease-in-out infinite;
-}
-
 .scribe-message.thinking .scribe-content {
   background: linear-gradient(
     90deg,
@@ -386,30 +382,6 @@
   animation: scribe-glow 2s ease-in-out infinite, scribe-pulse 1.5s ease-in-out infinite;
 }
 
-/* Searching Animation */
-.scribe-searching {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 20px;
-  color: var(--text-muted);
-}
-
-.scribe-searching-icon {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--background-modifier-border);
-  border-top-color: var(--interactive-accent);
-  border-radius: 50%;
-  animation: scribe-spin 1s linear infinite;
-}
-
-.scribe-searching-text {
-  font-size: 13px;
-  animation: scribe-pulse 1.5s ease-in-out infinite;
-}
-
 /* Input Area */
 .scribe-input-area {
   display: flex;
@@ -433,9 +405,9 @@
   font-family: inherit;
 }
 
-.scribe-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
+.scribe-input:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
 }
 
 .scribe-input::placeholder {
@@ -483,9 +455,9 @@
   font-size: 13px;
 }
 
-.scribe-tags-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
+.scribe-tags-input:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
 }
 
 .scribe-tags-add-btn {
@@ -574,28 +546,6 @@
 
 .scribe-model-label {
   font-family: var(--font-monospace);
-}
-
-/* Button Row */
-.scribe-button-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.scribe-search-btn {
-  flex: 1;
-  padding: 8px 16px;
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.scribe-search-btn:hover {
-  background: var(--background-modifier-hover);
 }
 
 /* Source Preview */
@@ -737,9 +687,9 @@
   font-size: 12px;
 }
 
-.scribe-preview-add-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
+.scribe-preview-add-input:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
 }
 
 .scribe-upload-label {
@@ -793,6 +743,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 12px 16px;
+  animation: scribe-connection-refresh 0.2s ease-out;
 }
 
 .scribe-connections-empty {
@@ -841,11 +792,11 @@
 }
 
 .scribe-connection-high .scribe-group-title {
-  color: var(--text-success);
+  color: var(--color-green);
 }
 
 .scribe-connection-medium .scribe-group-title {
-  color: var(--text-warning);
+  color: var(--color-yellow);
 }
 
 .scribe-connection-items {
@@ -903,11 +854,11 @@
 }
 
 .scribe-connection-high .scribe-score-bar::after {
-  background: var(--text-success);
+  background: var(--color-green);
 }
 
 .scribe-connection-medium .scribe-score-bar::after {
-  background: var(--text-warning);
+  background: var(--color-yellow);
 }
 
 .scribe-score-text {
@@ -943,11 +894,6 @@
   color: var(--text-faint);
 }
 
-/* Connection Item Animations */
-.scribe-connection-item {
-  animation: scribe-fade-in 0.2s ease-out;
-}
-
 /* Refresh animation */
 @keyframes scribe-connection-refresh {
   0% {
@@ -958,10 +904,6 @@
     opacity: 1;
     transform: scale(1);
   }
-}
-
-.scribe-connections-list {
-  animation: scribe-connection-refresh 0.2s ease-out;
 }
 
 /* ============================================
@@ -1003,9 +945,9 @@
   font-size: 14px;
 }
 
-.scribe-search-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
+.scribe-search-input:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
 }
 
 .scribe-search-results {
@@ -1130,9 +1072,9 @@
   margin-bottom: 12px;
 }
 
-.scribe-modal-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
+.scribe-modal-input:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -1px;
 }
 
 .scribe-modal-result {
@@ -1197,7 +1139,7 @@
 .scribe-duplicate-score {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-warning);
+  color: var(--color-yellow);
   white-space: nowrap;
 }
 
@@ -1254,18 +1196,27 @@
 }
 
 /* ============================================
-   CONTEXT NOTICE
+   ACCESSIBILITY
    ============================================ */
 
-.scribe-context-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--background-secondary);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: var(--text-muted);
-  animation: scribe-fade-in 0.2s ease-out;
+@media (prefers-reduced-motion: reduce) {
+  .scribe-loading-dot,
+  .scribe-message,
+  .scribe-message.thinking .scribe-avatar,
+  .scribe-message.thinking .scribe-content,
+  .scribe-thinking-spinner,
+  .scribe-preview-searching-text,
+  .scribe-preview-source-item,
+  .scribe-connections-list,
+  .scribe-connection-item {
+    animation: none;
+  }
+
+  .scribe-progress-fill,
+  .scribe-connection-item,
+  .scribe-search-result-item,
+  .scribe-preview-remove-btn {
+    transition: none;
+  }
 }
+
