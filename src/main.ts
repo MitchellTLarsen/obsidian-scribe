@@ -94,6 +94,8 @@ const API_URLS = {
   groq: "https://api.groq.com/openai/v1/chat/completions",
   gemini: (model: string, key: string) =>
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+  geminiEmbeddings: (key: string) =>
+    `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${key}`,
 } as const;
 
 const SYSTEM_PROMPT = `You are Archivist AI, an intelligent assistant with access to the user's notes vault and web content.
@@ -305,9 +307,9 @@ export default class ScribePlugin extends Plugin {
   private startupComplete = false; // Ignore file events during startup
 
   async onload() {
-    console.log("[Archivist AI] Loading plugin...");
+    console.debug("[Archivist AI] Loading plugin...");
     await this.loadSettings();
-    console.log(`[Archivist AI] Settings loaded. Provider: ${this.settings.defaultProvider}`);
+    console.debug(`[Archivist AI] Settings loaded. Provider: ${this.settings.defaultProvider}`);
 
     // Register views
     this.registerView(SCRIBE_VIEW_TYPE, (leaf) => new ScribeChatView(leaf, this));
@@ -1006,7 +1008,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     const file = await this.app.vault.create(fileName, content);
     new Notice(`Saved to ${fileName}`);
-    this.app.workspace.getLeaf(false).openFile(file);
+    void this.app.workspace.getLeaf(false).openFile(file);
   }
 
   // ============================================================================
@@ -1021,35 +1023,35 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     if (selection) {
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Summarize")
+          .setTitle("Scribe: summarize")
           .setIcon("file-text")
           .onClick(() => { void this.summarizeSelection(editor); })
       );
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Expand")
+          .setTitle("Scribe: expand")
           .setIcon("maximize-2")
           .onClick(() => { void this.expandSelection(editor); })
       );
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Simplify")
+          .setTitle("Scribe: simplify")
           .setIcon("minimize-2")
           .onClick(() => { void this.simplifySelection(editor); })
       );
 
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Fix grammar")
+          .setTitle("Scribe: fix grammar")
           .setIcon("check")
           .onClick(() => { void this.fixGrammar(editor); })
       );
     } else {
       menu.addItem((item) =>
         item
-          .setTitle("Scribe: Continue writing")
+          .setTitle("Scribe: continue writing")
           .setIcon("edit")
           .onClick(() => { void this.continueWriting(editor); })
       );
@@ -1057,7 +1059,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     menu.addItem((item) =>
       item
-        .setTitle("Scribe: Suggest tags")
+        .setTitle("Scribe: suggest tags")
         .setIcon("tag")
         .onClick(() => {
           if (view instanceof MarkdownView) void this.suggestTags(view);
@@ -1094,15 +1096,15 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   }
 
   async loadEmbeddings() {
-    console.log(`[Embeddings] Loading from: ${this.embeddingsCachePath}`);
+    console.debug(`[Embeddings] Loading from: ${this.embeddingsCachePath}`);
     try {
       const adapter = this.app.vault.adapter;
       if (await adapter.exists(this.embeddingsCachePath)) {
         const data = await adapter.read(this.embeddingsCachePath);
         this.embeddings = JSON.parse(data);
-        console.log(`[Embeddings] Loaded ${this.embeddings.length} embeddings from cache`);
+        console.debug(`[Embeddings] Loaded ${this.embeddings.length} embeddings from cache`);
       } else {
-        console.log("[Embeddings] No cache found");
+        console.debug("[Embeddings] No cache found");
       }
     } catch (error) {
       console.error("[Embeddings] Failed to load cache:", error);
@@ -1110,10 +1112,10 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   }
 
   async saveEmbeddings() {
-    console.log(`[Embeddings] Saving ${this.embeddings.length} embeddings to: ${this.embeddingsCachePath}`);
+    console.debug(`[Embeddings] Saving ${this.embeddings.length} embeddings to: ${this.embeddingsCachePath}`);
     try {
       await this.app.vault.adapter.write(this.embeddingsCachePath, JSON.stringify(this.embeddings));
-      console.log("[Embeddings] Saved successfully");
+      console.debug("[Embeddings] Saved successfully");
     } catch (error) {
       console.error("[Embeddings] Failed to save:", error);
     }
@@ -1283,7 +1285,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       return;
     }
 
-    console.log("[Index] Starting vault indexing...");
+    console.debug("[Index] Starting vault indexing...");
     this.indexing = true;
     this.indexingCancelled = false;
     this.indexingStatus = "Starting...";
@@ -1299,9 +1301,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       return !excludedFiles.includes(file.name);
     });
 
-    console.log(`[Index] Found ${filesToIndex.length} files to index`);
-    console.log(`[Index] Include folders: ${includeFolders.length > 0 ? includeFolders.join(", ") : "all"}`);
-    console.log(`[Index] Excluded files: ${excludedFiles.join(", ") || "none"}`);
+    console.debug(`[Index] Found ${filesToIndex.length} files to index`);
+    console.debug(`[Index] Include folders: ${includeFolders.length > 0 ? includeFolders.join(", ") : "all"}`);
+    console.debug(`[Index] Excluded files: ${excludedFiles.join(", ") || "none"}`);
     this.indexingProgress.total = filesToIndex.length;
     this.embeddings = [];
 
@@ -1345,9 +1347,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     }
 
     if (this.embeddings.length > 0) {
-      console.log(`[Index] Saving ${this.embeddings.length} embeddings...`);
+      console.debug(`[Index] Saving ${this.embeddings.length} embeddings...`);
       await this.saveEmbeddings();
-      console.log("[Index] Embeddings saved successfully");
+      console.debug("[Index] Embeddings saved successfully");
     }
 
     this.indexing = false;
@@ -1355,7 +1357,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       ? `Cancelled. Saved ${this.embeddings.length} chunks.`
       : `Done! ${this.embeddings.length} chunks from ${filesToIndex.length} files`;
 
-    console.log(`[Index] ${this.indexingStatus}`);
+    console.debug(`[Index] ${this.indexingStatus}`);
     currentNotice.hide();
     new Notice(this.indexingStatus, 5000);
   }
@@ -1397,10 +1399,20 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
   }
 
   async createEmbedding(text: string): Promise<number[] | null> {
-    if (this.settings.embeddingProvider !== "openai" || !this.settings.openaiApiKey) {
-      return null;
+    const provider = this.settings.embeddingProvider;
+
+    // Use Gemini embeddings
+    if (provider === "gemini") {
+      if (!this.settings.geminiApiKey) return null;
+      return this.createGeminiEmbedding(text);
     }
 
+    // Use OpenAI embeddings (default)
+    if (!this.settings.openaiApiKey) return null;
+    return this.createOpenAIEmbedding(text);
+  }
+
+  private async createOpenAIEmbedding(text: string): Promise<number[] | null> {
     try {
       const response = await requestUrl({
         url: API_URLS.openaiEmbeddings,
@@ -1415,13 +1427,11 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       });
 
       if (response.status >= 400) {
-        // Embedding API error, retrying
         await delay(2000);
         return null;
       }
 
       if (response.text?.trim().startsWith("<")) {
-        // Embedding API returned HTML - network issue
         await delay(2000);
         return null;
       }
@@ -1431,7 +1441,35 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       const data = response.json;
       return data?.data?.[0]?.embedding ?? null;
     } catch {
-      // Embedding request failed
+      await delay(2000);
+      return null;
+    }
+  }
+
+  private async createGeminiEmbedding(text: string): Promise<number[] | null> {
+    try {
+      const response = await requestUrl({
+        url: API_URLS.geminiEmbeddings(this.settings.geminiApiKey),
+        method: "POST",
+        contentType: "application/json",
+        body: JSON.stringify({
+          content: { parts: [{ text: text.slice(0, 8000) }] },
+        }),
+        throw: false,
+      });
+
+      if (response.status >= 400) {
+        console.debug("[Gemini Embedding] Error:", response.status, response.text?.slice(0, 200));
+        await delay(2000);
+        return null;
+      }
+
+      await delay(50); // Rate limiting (Gemini has generous limits)
+
+      const data = response.json;
+      return data?.embedding?.values ?? null;
+    } catch (e) {
+      console.debug("[Gemini Embedding] Failed:", e);
       await delay(2000);
       return null;
     }
@@ -1566,9 +1604,9 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     const useModel = model || this.getModelForProvider(useProvider);
     const context = buildContext(sources);
 
-    console.log(`[Chat] Provider: ${useProvider}, Model: ${useModel}`);
-    console.log(`[Chat] Sources: ${sources.length}, History: ${history.length} messages`);
-    console.log(`[Chat] Context length: ${context.length} chars`);
+    console.debug(`[Chat] Provider: ${useProvider}, Model: ${useModel}`);
+    console.debug(`[Chat] Sources: ${sources.length}, History: ${history.length} messages`);
+    console.debug(`[Chat] Context length: ${context.length} chars`);
 
     const handlers: Record<string, () => Promise<string>> = {
       openai: () => this.chatOpenAI(message, context, history, useModel),
@@ -1585,7 +1623,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
 
     const startTime = Date.now();
     const result = await handler();
-    console.log(`[Chat] Response received in ${Date.now() - startTime}ms, length: ${result.length} chars`);
+    console.debug(`[Chat] Response received in ${Date.now() - startTime}ms, length: ${result.length} chars`);
     return result;
   }
 
@@ -1599,8 +1637,8 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     ];
 
     const body = JSON.stringify({ model, messages });
-    console.log(`[OpenAI] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
-    console.log(`[OpenAI] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
+    console.debug(`[OpenAI] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
+    console.debug(`[OpenAI] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
 
     try {
       const response = await requestUrl({
@@ -1613,7 +1651,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         body,
       });
 
-      console.log(`[OpenAI] Response received, status: ${response.status}`);
+      console.debug(`[OpenAI] Response received, status: ${response.status}`);
       return response.json.choices[0].message.content;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -1636,8 +1674,8 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     const url = API_URLS.gemini(model, this.settings.geminiApiKey);
     const body = JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }] });
 
-    console.log(`[Gemini] Model: ${model}, Prompt size: ${fullPrompt.length} chars, Body size: ${body.length} bytes`);
-    console.log(`[Gemini] URL: ${url.replace(this.settings.geminiApiKey, "API_KEY_HIDDEN")}`);
+    console.debug(`[Gemini] Model: ${model}, Prompt size: ${fullPrompt.length} chars, Body size: ${body.length} bytes`);
+    console.debug(`[Gemini] URL: ${url.replace(this.settings.geminiApiKey, "API_KEY_HIDDEN")}`);
 
     try {
       const response = await requestUrl({
@@ -1647,10 +1685,10 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         body,
       });
 
-      console.log("[Gemini] Response received:", response.status);
+      console.debug("[Gemini] Response received:", response.status);
 
       if (!response.json.candidates?.[0]?.content?.parts?.[0]?.text) {
-        console.log("[Gemini] Invalid response:", JSON.stringify(response.json).slice(0, 500));
+        console.debug("[Gemini] Invalid response:", JSON.stringify(response.json).slice(0, 500));
         throw new Error(`Invalid response from Gemini. Model "${model}" may not be available.`);
       }
 
@@ -1683,8 +1721,8 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
       messages,
     });
 
-    console.log(`[Anthropic] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
-    console.log(`[Anthropic] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
+    console.debug(`[Anthropic] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
+    console.debug(`[Anthropic] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
 
     try {
       const response = await requestUrl({
@@ -1698,7 +1736,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         body,
       });
 
-      console.log(`[Anthropic] Response received, status: ${response.status}`);
+      console.debug(`[Anthropic] Response received, status: ${response.status}`);
       return response.json.content[0].text;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -1717,8 +1755,8 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
     ];
 
     const body = JSON.stringify({ model, messages });
-    console.log(`[Groq] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
-    console.log(`[Groq] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
+    console.debug(`[Groq] Model: ${model}, Messages: ${messages.length}, Body size: ${body.length} bytes`);
+    console.debug(`[Groq] Context size: ${context.length} chars, Message: ${message.slice(0, 100)}...`);
 
     try {
       const response = await requestUrl({
@@ -1731,7 +1769,7 @@ Create 5-10 flashcards covering the key concepts:\n\n${content.slice(0, 4000)}`,
         body,
       });
 
-      console.log(`[Groq] Response received, status: ${response.status}`);
+      console.debug(`[Groq] Response received, status: ${response.status}`);
       return response.json.choices[0].message.content;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -2242,7 +2280,7 @@ class ScribeChatView extends ItemView {
       badge.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(source.path);
         if (file instanceof TFile) {
-          this.app.workspace.getLeaf(false).openFile(file);
+          void this.app.workspace.getLeaf(false).openFile(file);
         }
       });
     }
@@ -2465,7 +2503,7 @@ class ScribeConnectionsView extends ItemView {
       item.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(conn.path);
         if (file instanceof TFile) {
-          this.app.workspace.getLeaf(false).openFile(file);
+          void this.app.workspace.getLeaf(false).openFile(file);
         }
       });
 
@@ -2514,7 +2552,6 @@ class ScribeSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName("General").setHeading();
 
     this.addApiKeySettings(containerEl);
     this.addProviderSettings(containerEl);
@@ -2665,19 +2702,46 @@ class ScribeSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Embedding model")
-      .setDesc("Model used for indexing and semantic search")
+      .setName("Embedding provider")
+      .setDesc("Provider for RAG embeddings (requires re-indexing if changed)")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("text-embedding-3-small", "text-embedding-3-small ($0.02/1M)")
-          .addOption("text-embedding-3-large", "text-embedding-3-large ($0.13/1M)")
-          .addOption("text-embedding-ada-002", "text-embedding-ada-002 ($0.10/1M)")
+          .addOption("openai", "OpenAI (requires API key)")
+          .addOption("gemini", "Gemini (free)")
+          .setValue(this.plugin.settings.embeddingProvider)
+          .onChange((value) => {
+            this.plugin.settings.embeddingProvider = value;
+            // Reset embedding model to default for new provider
+            if (value === "gemini") {
+              this.plugin.settings.embeddingModel = "text-embedding-004";
+            } else {
+              this.plugin.settings.embeddingModel = "text-embedding-3-small";
+            }
+            void this.plugin.saveSettings();
+            this.display(); // Refresh to show correct model options
+          })
+      );
+
+    const isGemini = this.plugin.settings.embeddingProvider === "gemini";
+    new Setting(containerEl)
+      .setName("Embedding model")
+      .setDesc(isGemini ? "Gemini embedding model" : "OpenAI embedding model")
+      .addDropdown((dropdown) => {
+        if (isGemini) {
+          dropdown.addOption("text-embedding-004", "text-embedding-004 (free)");
+        } else {
+          dropdown
+            .addOption("text-embedding-3-small", "text-embedding-3-small ($0.02/1M)")
+            .addOption("text-embedding-3-large", "text-embedding-3-large ($0.13/1M)")
+            .addOption("text-embedding-ada-002", "text-embedding-ada-002 ($0.10/1M)");
+        }
+        dropdown
           .setValue(this.plugin.settings.embeddingModel)
           .onChange((value) => {
             this.plugin.settings.embeddingModel = value;
             void this.plugin.saveSettings();
-          })
-      );
+          });
+      });
   }
 
   private addIndexingSettings(containerEl: HTMLElement) {
@@ -2914,7 +2978,7 @@ class ScribeSearchView extends ItemView {
       item.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(result.path);
         if (file instanceof TFile) {
-          this.app.workspace.getLeaf(false).openFile(file);
+          void this.app.workspace.getLeaf(false).openFile(file);
         }
       });
     }
@@ -3013,7 +3077,7 @@ class BacklinkSuggestionsModal extends Modal {
       openBtn.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(conn.path);
         if (file instanceof TFile) {
-          this.app.workspace.getLeaf(false).openFile(file);
+          void this.app.workspace.getLeaf(false).openFile(file);
         }
       });
     }
@@ -3055,7 +3119,7 @@ class DuplicatesModal extends Modal {
       const file1 = files.createEl("span", { text: getFileName(dup.path1), cls: "scribe-duplicate-name" });
       file1.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(dup.path1);
-        if (file instanceof TFile) this.app.workspace.getLeaf(false).openFile(file);
+        if (file instanceof TFile) void this.app.workspace.getLeaf(false).openFile(file);
       });
 
       files.createEl("span", { text: " ↔ " });
@@ -3063,7 +3127,7 @@ class DuplicatesModal extends Modal {
       const file2 = files.createEl("span", { text: getFileName(dup.path2), cls: "scribe-duplicate-name" });
       file2.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(dup.path2);
-        if (file instanceof TFile) this.app.workspace.getLeaf(false).openFile(file);
+        if (file instanceof TFile) void this.app.workspace.getLeaf(false).openFile(file);
       });
     }
 
@@ -3100,7 +3164,7 @@ class OrphansModal extends Modal {
       const name = item.createEl("span", { text: getFileName(orphan.path), cls: "scribe-orphan-name" });
       name.addEventListener("click", () => {
         const file = this.app.vault.getAbstractFileByPath(orphan.path);
-        if (file instanceof TFile) this.app.workspace.getLeaf(false).openFile(file);
+        if (file instanceof TFile) void this.app.workspace.getLeaf(false).openFile(file);
       });
 
       item.createEl("span", { text: ` (max ${orphan.maxScore}% similar)`, cls: "scribe-orphan-score" });
@@ -3253,7 +3317,7 @@ class FlashcardsModal extends Modal {
     const fileName = `Flashcards_${new Date().toISOString().slice(0, 10)}.md`;
     const file = await this.app.vault.create(fileName, content);
     new Notice(`Exported to ${fileName}`);
-    this.app.workspace.getLeaf(false).openFile(file);
+    void this.app.workspace.getLeaf(false).openFile(file);
     this.close();
   }
 
@@ -3363,7 +3427,7 @@ class TodoTitleModal extends Modal {
       const title = titleInput.value.trim();
       if (title) {
         this.close();
-        this.onSubmit(title);
+        void this.onSubmit(title);
       }
     });
 
