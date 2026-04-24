@@ -2054,7 +2054,7 @@ class ScribeChatView extends ItemView {
         if (!url) return;
 
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-          new Notice("Enter a valid web address starting with http:// or https://");
+          new Notice("Please enter a valid web address");
           return;
         }
 
@@ -2160,8 +2160,8 @@ class ScribeChatView extends ItemView {
 
       const renderMarkdown = () => {
         renderPending = false;
-        const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement | null;
-        if (!streamingEl) return;
+        const streamingEl = responseEl.querySelector(".scribe-streaming-content");
+        if (!(streamingEl instanceof HTMLElement)) return;
         streamingEl.empty();
         void MarkdownRenderer.render(this.app, fullResponse, streamingEl, "", this.component);
         this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
@@ -2185,8 +2185,8 @@ class ScribeChatView extends ItemView {
       this.addResponseExtras(responseEl, fullResponse);
       this.messages.push({ role: "assistant", content: fullResponse });
     } catch (e: unknown) {
-      const streamingEl = responseEl.querySelector(".scribe-streaming-content") as HTMLElement | null;
-      if (streamingEl) streamingEl.setText(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      const streamingEl = responseEl.querySelector(".scribe-streaming-content");
+      if (streamingEl instanceof HTMLElement) streamingEl.setText(`Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -2517,10 +2517,10 @@ class ScribeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Keys").setHeading();
 
     new Setting(containerEl)
-      .setName("OpenAI key")
-      .setDesc("Required for OpenAI models and embeddings")
+      .setName("Openai key")
+      .setDesc("Required for chat models and embeddings")
       .addText((text) =>
-        text.setPlaceholder("sk-...").setValue(this.plugin.settings.openaiApiKey).onChange((value) => {
+        text.setPlaceholder("Enter key").setValue(this.plugin.settings.openaiApiKey).onChange((value) => {
           this.plugin.settings.openaiApiKey = value;
           void this.plugin.saveSettings();
         })
@@ -2528,9 +2528,9 @@ class ScribeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Gemini key")
-      .setDesc("For Gemini models (free tier available)")
+      .setDesc("For chat models (free tier available)")
       .addText((text) =>
-        text.setPlaceholder("AI...").setValue(this.plugin.settings.geminiApiKey).onChange((value) => {
+        text.setPlaceholder("Enter key").setValue(this.plugin.settings.geminiApiKey).onChange((value) => {
           this.plugin.settings.geminiApiKey = value;
           void this.plugin.saveSettings();
         })
@@ -2538,9 +2538,9 @@ class ScribeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Anthropic key")
-      .setDesc("For Anthropic models")
+      .setDesc("For chat models")
       .addText((text) =>
-        text.setPlaceholder("sk-ant-...").setValue(this.plugin.settings.anthropicApiKey).onChange((value) => {
+        text.setPlaceholder("Enter key").setValue(this.plugin.settings.anthropicApiKey).onChange((value) => {
           this.plugin.settings.anthropicApiKey = value;
           void this.plugin.saveSettings();
         })
@@ -2548,9 +2548,9 @@ class ScribeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Groq key")
-      .setDesc("For Groq models (free tier available)")
+      .setDesc("For chat models (free tier available)")
       .addText((text) =>
-        text.setPlaceholder("gsk_...").setValue(this.plugin.settings.groqApiKey).onChange((value) => {
+        text.setPlaceholder("Enter key").setValue(this.plugin.settings.groqApiKey).onChange((value) => {
           this.plugin.settings.groqApiKey = value;
           void this.plugin.saveSettings();
         })
@@ -2565,7 +2565,7 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Which provider to use by default")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("openai", "OpenAI")
+          .addOption("openai", "Openai")
           .addOption("gemini", "Gemini")
           .addOption("anthropic", "Anthropic")
           .addOption("groq", "Groq")
@@ -2577,26 +2577,26 @@ class ScribeSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("OpenAI model")
-      .setDesc("Model for OpenAI")
+      .setName("Openai model")
+      .setDesc("Select the chat model")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gpt-5.4-nano", "gpt-5.4-nano")
-          .addOption("gpt-5.4-mini", "gpt-5.4-mini")
-          .addOption("gpt-5.4", "gpt-5.4")
-          .addOption("gpt-5.4-pro", "gpt-5.4-pro")
-          .addOption("gpt-5.2", "gpt-5.2")
-          .addOption("gpt-5-nano", "gpt-5-nano")
-          .addOption("gpt-5-mini", "gpt-5-mini")
-          .addOption("gpt-5", "gpt-5")
-          .addOption("gpt-4.1-nano", "gpt-4.1-nano")
-          .addOption("gpt-4.1-mini", "gpt-4.1-mini")
-          .addOption("gpt-4.1", "gpt-4.1")
-          .addOption("gpt-4o-mini", "gpt-4o-mini")
-          .addOption("gpt-4o", "gpt-4o")
-          .addOption("o4-mini", "o4-mini")
-          .addOption("o3-mini", "o3-mini")
-          .addOption("o1-mini", "o1-mini")
+          .addOption("gpt-5.4-nano", "5.4 nano")
+          .addOption("gpt-5.4-mini", "5.4 mini")
+          .addOption("gpt-5.4", "5.4")
+          .addOption("gpt-5.4-pro", "5.4 pro")
+          .addOption("gpt-5.2", "5.2")
+          .addOption("gpt-5-nano", "5 nano")
+          .addOption("gpt-5-mini", "5 mini")
+          .addOption("gpt-5", "5")
+          .addOption("gpt-4.1-nano", "4.1 nano")
+          .addOption("gpt-4.1-mini", "4.1 mini")
+          .addOption("gpt-4.1", "4.1")
+          .addOption("gpt-4o-mini", "4o mini")
+          .addOption("gpt-4o", "4o")
+          .addOption("o4-mini", "O4 mini")
+          .addOption("o3-mini", "O3 mini")
+          .addOption("o1-mini", "O1 mini")
           .setValue(this.plugin.settings.openaiModel)
           .onChange((value) => {
             this.plugin.settings.openaiModel = value;
@@ -2606,15 +2606,15 @@ class ScribeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Gemini model")
-      .setDesc("Model for Gemini")
+      .setDesc("Select the chat model")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("gemini-3.1-pro-preview", "gemini-3.1-pro-preview")
-          .addOption("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview")
-          .addOption("gemini-3-flash-preview", "gemini-3-flash-preview")
-          .addOption("gemini-2.5-pro", "gemini-2.5-pro")
-          .addOption("gemini-2.5-flash", "gemini-2.5-flash")
-          .addOption("gemini-2.5-flash-lite", "gemini-2.5-flash-lite")
+          .addOption("gemini-3.1-pro-preview", "3.1 pro (preview)")
+          .addOption("gemini-3.1-flash-lite-preview", "3.1 flash lite (preview)")
+          .addOption("gemini-3-flash-preview", "3 flash (preview)")
+          .addOption("gemini-2.5-pro", "2.5 pro")
+          .addOption("gemini-2.5-flash", "2.5 flash")
+          .addOption("gemini-2.5-flash-lite", "2.5 flash lite")
           .setValue(this.plugin.settings.geminiModel)
           .onChange((value) => {
             this.plugin.settings.geminiModel = value;
@@ -2624,14 +2624,14 @@ class ScribeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Anthropic model")
-      .setDesc("Model for Anthropic")
+      .setDesc("Select the chat model")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("claude-sonnet-4-20250514", "claude-sonnet-4")
-          .addOption("claude-3-5-sonnet-20241022", "claude-3.5-sonnet")
-          .addOption("claude-3-5-haiku-20241022", "claude-3.5-haiku")
-          .addOption("claude-3-opus-20240229", "claude-3-opus")
-          .addOption("claude-3-haiku-20240307", "claude-3-haiku")
+          .addOption("claude-sonnet-4-20250514", "Sonnet 4")
+          .addOption("claude-3-5-sonnet-20241022", "Sonnet 3.5")
+          .addOption("claude-3-5-haiku-20241022", "Haiku 3.5")
+          .addOption("claude-3-opus-20240229", "Opus 3")
+          .addOption("claude-3-haiku-20240307", "Haiku 3")
           .setValue(this.plugin.settings.anthropicModel)
           .onChange((value) => {
             this.plugin.settings.anthropicModel = value;
@@ -2641,12 +2641,12 @@ class ScribeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Groq model")
-      .setDesc("Model for Groq")
+      .setDesc("Select the chat model")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("llama-3.3-70b-versatile", "llama-3.3-70b")
-          .addOption("llama-3.1-8b-instant", "llama-3.1-8b")
-          .addOption("mixtral-8x7b-32768", "mixtral-8x7b")
+          .addOption("llama-3.3-70b-versatile", "Llama 3.3 70b")
+          .addOption("llama-3.1-8b-instant", "Llama 3.1 8b")
+          .addOption("mixtral-8x7b-32768", "Mixtral 8x7b")
           .setValue(this.plugin.settings.groqModel)
           .onChange((value) => {
             this.plugin.settings.groqModel = value;
@@ -2659,7 +2659,7 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Provider for embeddings (requires re-indexing if changed)")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("openai", "OpenAI")
+          .addOption("openai", "Openai")
           .addOption("gemini", "Gemini")
           .setValue(this.plugin.settings.embeddingProvider)
           .onChange((value) => {
@@ -2681,12 +2681,12 @@ class ScribeSettingTab extends PluginSettingTab {
       .setDesc("Model for generating embeddings")
       .addDropdown((dropdown) => {
         if (isGemini) {
-          dropdown.addOption("text-embedding-004", "text-embedding-004");
+          dropdown.addOption("text-embedding-004", "Embedding 004");
         } else {
           dropdown
-            .addOption("text-embedding-3-small", "text-embedding-3-small")
-            .addOption("text-embedding-3-large", "text-embedding-3-large")
-            .addOption("text-embedding-ada-002", "text-embedding-ada-002");
+            .addOption("text-embedding-3-small", "Embedding 3 small")
+            .addOption("text-embedding-3-large", "Embedding 3 large")
+            .addOption("text-embedding-ada-002", "Embedding ada 002");
         }
         dropdown
           .setValue(this.plugin.settings.embeddingModel)
