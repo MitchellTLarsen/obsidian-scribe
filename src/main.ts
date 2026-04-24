@@ -25,7 +25,6 @@ interface ScribeSettings {
   geminiApiKey: string;
   anthropicApiKey: string;
   groqApiKey: string;
-  ollamaBaseUrl: string;
   defaultProvider: string;
   openaiModel: string;
   anthropicModel: string;
@@ -37,7 +36,6 @@ interface ScribeSettings {
   excludedFiles: string[];
   contextSize: number;
   showSources: boolean;
-  confirmBeforeSend: boolean;
 }
 
 interface Message {
@@ -120,7 +118,6 @@ const DEFAULT_SETTINGS: ScribeSettings = {
   geminiApiKey: "",
   anthropicApiKey: "",
   groqApiKey: "",
-  ollamaBaseUrl: "http://localhost:11434",
   defaultProvider: "openai",
   openaiModel: "gpt-5.4-nano",
   anthropicModel: "claude-3-5-haiku-20241022",
@@ -132,7 +129,6 @@ const DEFAULT_SETTINGS: ScribeSettings = {
   excludedFiles: [],
   contextSize: 10,
   showSources: true,
-  confirmBeforeSend: false,
 };
 
 // ============================================================================
@@ -1807,7 +1803,6 @@ class ScribeChatView extends ItemView {
     this.sourcePreviewEl = container.createDiv({ cls: "scribe-source-preview is-hidden" });
 
     this.createInputArea(container);
-    await Promise.resolve();
   }
 
   private createHeader(container: HTMLElement) {
@@ -2212,7 +2207,8 @@ class ScribeChatView extends ItemView {
   }
 
   private addResponseExtras(responseEl: HTMLElement, fullResponse: string) {
-    const contentEl = responseEl.querySelector(".scribe-content") as HTMLElement;
+    const contentEl = responseEl.querySelector(".scribe-content");
+    if (!(contentEl instanceof HTMLElement)) return;
 
     if (this.sources.length > 0 && this.plugin.settings.showSources) {
       this.createSourceBadges(contentEl, this.sources);
@@ -2317,7 +2313,6 @@ class ScribeChatView extends ItemView {
 
   async onClose(): Promise<void> {
     this.component.unload();
-    await Promise.resolve();
   }
 }
 
@@ -2364,7 +2359,6 @@ class ScribeConnectionsView extends ItemView {
 
     // Initial render
     this.refresh();
-    await Promise.resolve();
   }
 
   refresh() {
@@ -2477,7 +2471,6 @@ class ScribeConnectionsView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    await Promise.resolve();
   }
 }
 
@@ -2872,7 +2865,6 @@ class ScribeSearchView extends ItemView {
     // Results
     this.resultsEl = container.createDiv({ cls: "scribe-search-results" });
     this.showEmptyState();
-    await Promise.resolve();
   }
 
   private showEmptyState() {
@@ -2938,7 +2930,6 @@ class ScribeSearchView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    await Promise.resolve();
   }
 }
 
