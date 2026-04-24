@@ -1787,7 +1787,7 @@ class ScribeChatView extends ItemView {
     return "message-square";
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     this.component.load();
     const container = this.contentEl;
     container.empty();
@@ -1803,6 +1803,7 @@ class ScribeChatView extends ItemView {
     this.sourcePreviewEl = container.createDiv({ cls: "scribe-source-preview is-hidden" });
 
     this.createInputArea(container);
+    return Promise.resolve();
   }
 
   private createHeader(container: HTMLElement) {
@@ -2311,8 +2312,9 @@ class ScribeChatView extends ItemView {
     }).open();
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     this.component.unload();
+    return Promise.resolve();
   }
 }
 
@@ -2342,7 +2344,7 @@ class ScribeConnectionsView extends ItemView {
     return "git-branch";
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     const container = this.contentEl;
     container.empty();
     container.addClass("scribe-connections-container");
@@ -2359,6 +2361,7 @@ class ScribeConnectionsView extends ItemView {
 
     // Initial render
     this.refresh();
+    return Promise.resolve();
   }
 
   refresh() {
@@ -2470,7 +2473,8 @@ class ScribeConnectionsView extends ItemView {
     }
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
+    return Promise.resolve();
   }
 }
 
@@ -2838,7 +2842,7 @@ class ScribeSearchView extends ItemView {
     return "search";
   }
 
-  async onOpen(): Promise<void> {
+  onOpen(): Promise<void> {
     const container = this.contentEl;
     container.empty();
     container.addClass("scribe-search-container");
@@ -2865,6 +2869,7 @@ class ScribeSearchView extends ItemView {
     // Results
     this.resultsEl = container.createDiv({ cls: "scribe-search-results" });
     this.showEmptyState();
+    return Promise.resolve();
   }
 
   private showEmptyState() {
@@ -2929,7 +2934,8 @@ class ScribeSearchView extends ItemView {
     }
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
+    return Promise.resolve();
   }
 }
 
